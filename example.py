@@ -71,7 +71,7 @@ game = Game(map)
 
 # init game
 seed = random.randint(0, 10000)
-game.reset(attacker="attacker", defender="defender", seed=seed)
+game.reset_game(attacker="attacker", defender="defender", seed=seed)
 
 # game loop
 while not game.is_over():

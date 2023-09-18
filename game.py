@@ -171,7 +171,7 @@ class Game:
 
         return map_template
 
-    def reset(self, attacker: str, defender: str, seed=0):
+    def reset_game(self, attacker: str, defender: str, seed=0):
         # 使用seed生成随机数
         random.seed(seed)
 

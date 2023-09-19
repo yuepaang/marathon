@@ -21,11 +21,10 @@ from easydict import EasyDict
 import numpy as np
 
 from game import Game
+from py.action import Action, distance
 
 ORIGINAL_AGENT = "attacker"
 OPPONENT_AGENT = "defender"
-
-FORCE_RESTART_INTERVAL = 50000
 
 
 class Direction(enum.IntEnum):
@@ -33,31 +32,16 @@ class Direction(enum.IntEnum):
     DOWN = 1
     RIGHT = 2
     LEFT = 3
+    STAY = 4
 
 
 @ENV_REGISTRY.register("marathon")
 class Marathon(Game, BaseEnv):
-    MarathonTimestep = namedtuple(
-        "MarathonTimestep", ["obs", "reward", "done", "info", "episode_steps"]
-    )
+    # MarathonTimestep = namedtuple(
+    #     "MarathonTimestep", ["obs", "reward", "done", "info", "episode_steps"]
+    # )
     config = dict(
-        two_player=False,
-        mirror_opponent=False,
-        reward_type="original",
-        save_replay_episodes=None,
-        difficulty=7,
-        reward_death_value=10,
-        reward_win=200,
-        obs_alone=False,
-        game_steps_per_episode=None,
-        reward_only_positive=True,
-        death_mask=False,
-        special_global_state=False,
-        # add map's center location point or not
-        add_center_xy=True,
-        independent_obs=False,
-        # add agent's id information or not in special global state
-        state_agent_id=True,
+        flat_obs=True,
     )
 
     def __init__(self, cfg: dict, map_data: dict) -> None:
@@ -65,15 +49,22 @@ class Marathon(Game, BaseEnv):
         cfg = deep_merge_dicts(EasyDict(self.config), cfg)
         self.cfg = cfg
 
+        self._flat_obs = cfg.flat_obs
+
         self._episode_steps = 0
         self._seed = None
-        self._launch_env_flag = True
-        self.agents = {}
-        self.enemies = {}
+        self._launch_env_flag = False
+        self.action_helper = None
+        self.attackers = {}
+        self.defenders = {}
+        self.powerup_count = 6
+        self.score_count = 1
+        self.duration_count = 6
+        self.n_actions = 5
+
         self._episode_count = 0
         self._episode_steps = 0
         self._total_steps = 0
-        self._next_reset_steps = FORCE_RESTART_INTERVAL
 
     def seed(self, seed, dynamic_seed=False):
         self._seed = seed
@@ -83,65 +74,23 @@ class Marathon(Game, BaseEnv):
         self.reset_game("attacker", "defender", self.seed)
         self._launch_env_flag = True
 
-    def reset(self):
+    def reset(self) -> np.ndarray:
         self._final_eval_fake_reward = 0.0
-        old_unit_tags = set(u.tag for u in self.agents.values()).union(
-            set(u.tag for u in self.enemies.values())
-        )
 
-        if self.just_force_restarts:
-            old_unit_tags = set()
-            self.just_force_restarts = False
-
-        if self._launch_env_flag:
+        if not self._launch_env_flag:
             # Launch StarCraft II
             print("*************LAUNCH MARATHON GAME********************")
             self._launch()
-            self._launch_env_flag = False
-        elif (self._total_steps > self._next_reset_steps) or (
-            self.save_replay_episodes is not None
-        ):
-            # Avoid hitting the real episode limit of SC2 env
-            print(
-                "We are full restarting the environment! save_replay_episodes: ",
-                self.save_replay_episodes,
-            )
-            self.full_restart()
-            old_unit_tags = set()
-            self._next_reset_steps += FORCE_RESTART_INTERVAL
-        else:
-            self._restart_episode()
 
-        # Information kept for counting the reward
-        self.win_counted = False
-        self.defeat_counted = False
-
-        self.action_helper.reset()
-
-        self.previous_ally_units = None
-        self.previous_enemy_units = None
-
-        # if self.heuristic_ai:
-        #     self.heuristic_targets = [None] * self.n_agents
-
-        count = 0
-        while count <= 5:
-            self._update_obs()
-            # print("INTERNAL INIT UNIT BEGIN")
-            init_flag = self.init_units(old_unit_tags)
-            # print("INTERNAL INIT UNIT OVER", init_flag)
-            count += 1
-            if init_flag:
-                break
+        for a_id, agent in self.agents.items():
+            if agent.role == "ATTACKER":
+                self.attackers[a_id] = agent
             else:
-                old_unit_tags = set()
-        if count >= 5:
-            raise RuntimeError("reset 5 times error")
+                self.defenders[a_id] = agent
 
-        self.reward_helper.reset(self.max_reward)
+        self.action_helper = Action(self.attackers, self.defenders)
 
-        assert all(u.health > 0 for u in self.agents.values())
-        assert all(u.health > 0 for u in self.enemies.values())
+        # self.reward_helper.reset(self.max_reward)
 
         return {
             "agent_state": {
@@ -163,48 +112,15 @@ class Marathon(Game, BaseEnv):
         NOTE: Agents should have access only to their local observations
         during decentralized execution.
         """
-        agents_obs_list = [
-            self.get_obs_agent(i, is_opponent) for i in range(self.n_agents)
-        ]
-
-        if self.mirror_opponent and is_opponent:
-            assert not self.flatten_observation
-            new_obs = list()
-            for agent_obs in agents_obs_list:
-                new_agent_obs = dict()
-                for key, feat in agent_obs.items():
-                    feat = feat.copy()
-
-                    if key == "move_feats":
-                        can_move_right = feat[2]
-                        can_move_left = feat[3]
-                        feat[3] = can_move_right
-                        feat[2] = can_move_left
-
-                    elif key == "enemy_feats" or key == "ally_feats":
-                        for unit_id in range(feat.shape[0]):
-                            # Relative x
-                            feat[unit_id, 2] = -feat[unit_id, 2]
-
-                    new_agent_obs[key] = feat
-                new_obs.append(new_agent_obs)
-            agents_obs_list = new_obs
-
-        if not self.flatten_observation:
-            agents_obs_list = self._flatten_obs(agents_obs_list)
-        if self.obs_alone:
-            (
-                agents_obs_list,
-                agents_obs_alone_list,
-                agents_obs_alone_padding_list,
-            ) = list(zip(*agents_obs_list))
-            return (
-                np.array(agents_obs_list).astype(np.float32),
-                np.array(agents_obs_alone_list).astype(np.float32),
-                np.array(agents_obs_alone_padding_list).astype(np.float32),
-            )
+        defender_ids = list(self.defenders.keys())
+        attacker_ids = list(self.attackers.keys())
+        if is_opponent:
+            agents_obs_list = [self.get_obs_agent(i, is_opponent) for i in attacker_ids]
         else:
-            return np.array(agents_obs_list).astype(np.float32)
+            agents_obs_list = [self.get_obs_agent(i, is_opponent) for i in defender_ids]
+
+        if self._flat_obs:
+            agents_obs_list = self._flatten_obs(agents_obs_list)
 
     def step(self, actions):
         self.apply_actions(actions["attacker"], actions["defender"])
@@ -212,8 +128,30 @@ class Marathon(Game, BaseEnv):
     def get_unit_by_id(self, a_id, is_opponent=False):
         """Get unit by ID."""
         if is_opponent:
-            return self.enemies[a_id]
-        return self.agents[a_id]
+            return self.attacker[a_id]
+        return self.defender[a_id]
+
+    def get_obs_enemy_feats_size(self):
+        """Returns the dimensions of the matrix containing enemy features.
+        Size is n_enemies x n_features.
+        """
+        nf_en = 2 + self.score_count + self.powerup_count + self.duration_count
+
+        return len(self.attacker), nf_en
+
+    def get_obs_ally_feats_size(self):
+        """Returns the dimensions of the matrix containing ally features.
+        Size is n_allies x n_features.
+        """
+        nf_al = 2 + self.score_count + self.powerup_count + self.duration_count
+
+        return len(self.defender) - 1, nf_al
+
+    def get_obs_own_feats_size(self):
+        """Returns the size of the vector containing the agents' own features."""
+        own_feats = 2 + self.score_count + self.powerup_count + self.duration_count
+        own_feats += self.n_actions
+        return own_feats
 
     def get_obs_agent(self, agent_id, is_opponent=False):
         unit = self.get_unit_by_id(agent_id, is_opponent=is_opponent)
@@ -231,115 +169,107 @@ class Marathon(Game, BaseEnv):
             agent_id, self, is_opponent
         )
 
-        if unit.health > 0:  # otherwise dead, return all zeros
-            x = unit.pos.x
-            y = unit.pos.y
-            sight_range = self.unit_sight_range(agent_id)
-            avail_actions = self.action_helper.get_avail_agent_actions(
-                agent_id, self, is_opponent
-            )
+        x = unit.pos[0]
+        y = unit.pos[1]
+        sight_range = unit.vision_range
+        # 1*n_actions
+        avail_actions = self.action_helper.get_avail_agent_actions(
+            agent_id, self, is_opponent
+        )
 
-            # Enemy features
-            if is_opponent:
-                enemy_items = self.agents.items()
-            else:
-                enemy_items = self.enemies.items()
-            for e_id, e_unit in enemy_items:
-                e_x = e_unit.pos.x
-                e_y = e_unit.pos.y
-                dist = distance(x, y, e_x, e_y)
+        # Enemy features
+        if is_opponent:
+            enemy_items = self.attacker.items()
+        else:
+            enemy_items = self.defender.items()
+        idx_map = {}
+        idx = 0
+        for e_id, e_unit in enemy_items:
+            idx_map[e_id] = idx
+            idx += 1
+            e_x = e_unit.pos[0]
+            e_y = e_unit.pos[1]
+            dist = distance(x, y, e_x, e_y)
 
-                if dist < sight_range and e_unit.health > 0:  # visible and alive
-                    # Sight range > shoot range
-                    enemy_feats[e_id, 0] = avail_actions[
-                        self.action_helper.n_actions_no_attack + e_id
-                    ]  # available
-                    enemy_feats[e_id, 1] = dist / sight_range  # distance
-                    enemy_feats[e_id, 2] = (e_x - x) / sight_range  # relative X
-                    enemy_feats[e_id, 3] = (e_y - y) / sight_range  # relative Y
+            if dist < sight_range:  # visible
+                # enemy_feats[idx_map[e_id], 0] = avail_actions[
+                #     self.action_helper.n_actions_no_attack + e_id
+                # ]  # available
+                enemy_feats[idx_map[e_id], 0]
+                enemy_feats[idx_map[e_id], 1] = dist / sight_range  # distance
+                enemy_feats[idx_map[e_id], 2] = (e_x - x) / sight_range  # relative X
+                enemy_feats[idx_map[e_id], 3] = (e_y - y) / sight_range  # relative Y
 
-                    ind = 4
-                    if self.obs_all_health:
-                        enemy_feats[e_id, ind] = (
-                            e_unit.health / e_unit.health_max
-                        )  # health
-                        ind += 1
-                        if self.shield_bits_enemy > 0:
-                            max_shield = self.unit_max_shield(e_unit, not is_opponent)
-                            enemy_feats[e_id, ind] = (
-                                e_unit.shield / max_shield
-                            )  # shield
-                            ind += 1
-
-                    if self.unit_type_bits > 0:
-                        # If enemy is computer, than use ally=False, but since now we use
-                        #  agent for enemy, ally=True
-                        if self.two_player:
-                            type_id = self.get_unit_type_id(
-                                e_unit, True, not is_opponent
-                            )
-                        else:
-                            type_id = self.get_unit_type_id(e_unit, False, False)
-                        enemy_feats[e_id, ind + type_id] = 1  # unit type
-
-            # Ally features
-            al_ids = [
-                al_id
-                for al_id in range(
-                    (self.n_agents if not is_opponent else self.n_enemies)
-                )
-                if al_id != agent_id
-            ]
-            for i, al_id in enumerate(al_ids):
-                al_unit = self.get_unit_by_id(al_id, is_opponent=is_opponent)
-                al_x = al_unit.pos.x
-                al_y = al_unit.pos.y
-                dist = distance(x, y, al_x, al_y)
-
-                if dist < sight_range and al_unit.health > 0:  # visible and alive
-                    ally_feats[i, 0] = 1  # visible
-                    ally_feats[i, 1] = dist / sight_range  # distance
-                    ally_feats[i, 2] = (al_x - x) / sight_range  # relative X
-                    ally_feats[i, 3] = (al_y - y) / sight_range  # relative Y
-
-                    ind = 4
-                    if self.obs_all_health:
-                        ally_feats[i, ind] = (
-                            al_unit.health / al_unit.health_max
-                        )  # health
-                        ind += 1
-                        if self.shield_bits_ally > 0:
-                            max_shield = self.unit_max_shield(al_unit, is_opponent)
-                            ally_feats[i, ind] = al_unit.shield / max_shield  # shield
-                            ind += 1
-
-                    if self.unit_type_bits > 0:
-                        type_id = self.get_unit_type_id(al_unit, True, is_opponent)
-                        ally_feats[i, ind + type_id] = 1
-                        ind += self.unit_type_bits
-
-                    # LJ fix
-                    # if self.obs_last_action:
-                    #     ally_feats[i, ind:] = self.action_helper.get_last_action(is_opponent)[al_id]
-
-            # Own features
-            ind = 0
-            if self.obs_own_health:
-                own_feats[ind] = unit.health / unit.health_max
-                ind += 1
-                if self.shield_bits_ally > 0:
-                    max_shield = self.unit_max_shield(unit, is_opponent)
-                    own_feats[ind] = unit.shield / max_shield
+                ind = 4
+                if self.obs_all_health:
+                    enemy_feats[e_id, ind] = e_unit.health / e_unit.health_max  # health
                     ind += 1
+                    if self.shield_bits_enemy > 0:
+                        max_shield = self.unit_max_shield(e_unit, not is_opponent)
+                        enemy_feats[e_id, ind] = e_unit.shield / max_shield  # shield
+                        ind += 1
 
-            if self.unit_type_bits > 0:
-                type_id = self.get_unit_type_id(unit, True, is_opponent)
-                own_feats[ind + type_id] = 1
-                ind += self.unit_type_bits
-            if self.obs_last_action:
-                own_feats[ind:] = self.action_helper.get_last_action(is_opponent)[
-                    agent_id
-                ]
+                if self.unit_type_bits > 0:
+                    # If enemy is computer, than use ally=False, but since now we use
+                    #  agent for enemy, ally=True
+                    if self.two_player:
+                        type_id = self.get_unit_type_id(e_unit, True, not is_opponent)
+                    else:
+                        type_id = self.get_unit_type_id(e_unit, False, False)
+                    enemy_feats[e_id, ind + type_id] = 1  # unit type
+
+        # Ally features
+        al_ids = [
+            al_id
+            for al_id in range((self.n_agents if not is_opponent else self.n_enemies))
+            if al_id != agent_id
+        ]
+        for i, al_id in enumerate(al_ids):
+            al_unit = self.get_unit_by_id(al_id, is_opponent=is_opponent)
+            al_x = al_unit.pos.x
+            al_y = al_unit.pos.y
+            dist = distance(x, y, al_x, al_y)
+
+            if dist < sight_range and al_unit.health > 0:  # visible and alive
+                ally_feats[i, 0] = 1  # visible
+                ally_feats[i, 1] = dist / sight_range  # distance
+                ally_feats[i, 2] = (al_x - x) / sight_range  # relative X
+                ally_feats[i, 3] = (al_y - y) / sight_range  # relative Y
+
+                ind = 4
+                if self.obs_all_health:
+                    ally_feats[i, ind] = al_unit.health / al_unit.health_max  # health
+                    ind += 1
+                    if self.shield_bits_ally > 0:
+                        max_shield = self.unit_max_shield(al_unit, is_opponent)
+                        ally_feats[i, ind] = al_unit.shield / max_shield  # shield
+                        ind += 1
+
+                if self.unit_type_bits > 0:
+                    type_id = self.get_unit_type_id(al_unit, True, is_opponent)
+                    ally_feats[i, ind + type_id] = 1
+                    ind += self.unit_type_bits
+
+                # LJ fix
+                # if self.obs_last_action:
+                #     ally_feats[i, ind:] = self.action_helper.get_last_action(is_opponent)[al_id]
+
+        # Own features
+        ind = 0
+        if self.obs_own_health:
+            own_feats[ind] = unit.health / unit.health_max
+            ind += 1
+            if self.shield_bits_ally > 0:
+                max_shield = self.unit_max_shield(unit, is_opponent)
+                own_feats[ind] = unit.shield / max_shield
+                ind += 1
+
+        if self.unit_type_bits > 0:
+            type_id = self.get_unit_type_id(unit, True, is_opponent)
+            own_feats[ind + type_id] = 1
+            ind += self.unit_type_bits
+        if self.obs_last_action:
+            own_feats[ind:] = self.action_helper.get_last_action(is_opponent)[agent_id]
 
         if is_opponent:
             agent_id_feats = np.zeros(self.n_enemies)

@@ -13,6 +13,7 @@ class Direction(enum.IntEnum):
     DOWN = 1
     RIGHT = 2
     LEFT = 3
+    STAY = 4
 
 
 def distance(x1, y1, x2, y2):
@@ -28,8 +29,8 @@ class Action:
 
     def __init__(self, agents, enemies):
         self._move_amount = 1
-        self.n_actions_move = 4
-        self.n_actions = 4
+        self.n_actions_move = 5
+        self.n_actions = 5
         self.map_x = 0
         self.map_y = 0
 
@@ -102,6 +103,8 @@ class Action:
             cmd = "RIGHT"
         elif action == 3:
             cmd = "LEFT"
+        elif action == 4:
+            cmd = "STAY"
 
         return cmd
 
@@ -118,6 +121,9 @@ class Action:
             avail_actions[2] = 1
         if self.can_move(unit, Direction.LEFT):
             avail_actions[3] = 1
+
+        # if self.can_move(unit, Direction.STAY):
+        avail_actions[4] = 1
 
         return avail_actions
 
@@ -156,7 +162,7 @@ class Action:
 
     def get_obs_move_feats_size(self):
         """Returns the size of the vector containing the agents's movement-related features."""
-        return 4
+        return 5
 
     def get_last_action(self, is_opponent=False):
         if is_opponent:

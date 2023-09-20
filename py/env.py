@@ -48,32 +48,67 @@ class Marathon(Game):
         self.reset_game("attacker", "defender", self.seed)
         self._launch_env_flag = True
 
-    def reset(self) -> np.ndarray:
+    def reset(self):
         self._final_eval_fake_reward = 0.0
 
         print("*************LAUNCH MARATHON GAME********************")
         self._launch()
 
-        picked_id = None
-        picked_agent = None
-        for a_id, agent in self.agents.items():
-            if agent.role == "DEFENDER":
-                picked_agent = agent
-                picked_id = a_id
-                break
         # attacker_state = self.get_agent_states_by_player("attacker")
         defender_state = self.get_agent_states_by_player("defender")
-        # raise Exception("e")
+        obs_dict = {}
+        info = []
+        for a_id, state in defender_state.items():
+            obs_dict[a_id] = self.get_obs(state)
+            info.append(a_id)
 
-        own_feats_dim = 128
+        return obs_dict, info
+
+    def step(self, actions):
+        attacker_state = self.get_agent_states_by_player("attacker")
+        defender_state = self.get_agent_states_by_player("defender")
+        ACTIONS = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
+        attacker_actions = {
+            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
+        }
+
+        attacker_score = 0
+        for k in attacker_state.keys():
+            attacker_score += attacker_state[k]["self_agent"]["score"]
+
+        total_score = 0
+        for k in defender_state.keys():
+            total_score += defender_state[k]["self_agent"]["score"]
+
+        self.apply_actions(attacker_actions, actions)
+
+        # attacker_state = self.get_agent_states_by_player("attacker")
+        defender_state = self.get_agent_states_by_player("defender")
+
+        obs_dict = {}
+        for a_id, state in defender_state.items():
+            obs_dict[a_id] = self.get_obs(state)
+
+        return (
+            obs_dict,
+            attacker_score - total_score,
+            self.is_over(),
+            self.is_over(),
+            False,
+        )
+
+    def get_obs(self, state):
+        # TODO: state feature for one agent
+        own_feats_dim = 256
 
         obs = np.zeros(own_feats_dim, dtype=np.float32)
 
-        obs[0] = picked_agent.pos[0] / self.map_x
-        obs[1] = picked_agent.pos[1] / self.map_y
-        obs[2] = picked_agent.score
-        ind = 3
-        state = defender_state[picked_id]
+        obs[0] = state["self_agent"]["x"] / self.map_x
+        obs[1] = state["self_agent"]["y"] / self.map_y
+        obs[2] = state["self_agent"]["score"]
+        obs[3] = state["self_agent"]["invulnerability_duration"]
+        obs[4] = state["self_agent"]["vision_range"]
+        ind = 5
         for wall in state["walls"]:
             obs[ind] = wall["x"]
             ind += 1
@@ -94,69 +129,5 @@ class Marathon(Game):
             obs[ind] = oa["x"]
             ind += 1
             obs[ind] = oa["y"]
-
-        return obs, {"a_id": picked_id}
-
-    def step(self, actions):
-        attacker_state = self.get_agent_states_by_player("attacker")
-        defender_state = self.get_agent_states_by_player("defender")
-        ACTIONS = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
-        attacker_actions = {
-            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
-        }
-
-        attacker_score = 0
-        for k in attacker_state.keys():
-            attacker_score += attacker_state[k]["self_agent"]["score"]
-
-        total_score = 0
-        for k in defender_state.keys():
-            total_score += defender_state[k]["self_agent"]["score"]
-            if k not in actions:
-                actions[k] = random.choice(ACTIONS)
-        self.apply_actions(attacker_actions, actions)
-
-        picked_id = None
-        picked_agent = None
-        for a_id, agent in self.agents.items():
-            if agent.role == "DEFENDER":
-                picked_agent = agent
-                picked_id = a_id
-                break
-
-        # attacker_state = self.get_agent_states_by_player("attacker")
-        defender_state = self.get_agent_states_by_player("defender")
-
-        own_feats_dim = 128
-
-        obs = np.zeros(own_feats_dim, dtype=np.float32)
-
-        obs[0] = picked_agent.pos[0] / self.map_x
-        obs[1] = picked_agent.pos[1] / self.map_y
-        obs[2] = picked_agent.score
-        ind = 3
-        state = defender_state[picked_id]
-        for wall in state["walls"]:
-            obs[ind] = wall["x"]
             ind += 1
-            obs[ind] = wall["y"]
-            ind += 1
-        for oa in state["other_agents"]:
-            obs[ind] = oa["score"]
-            ind += 1
-            obs[ind] = 1 if oa["role"] == "DEFENDER" else 0
-            ind += 1
-            obs[ind] = oa["x"]
-            ind += 1
-            obs[ind] = oa["y"]
-
-        return (
-            obs,
-            attacker_score - total_score,
-            self.is_over(),
-            self.is_over(),
-            False,
-        )
-
-    def get_obs(self):
-        pass
+        return obs

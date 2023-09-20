@@ -86,24 +86,34 @@ LR = 1e-4
 n_actions = 5
 # Get the number of state observations
 state, info = env.reset()
-# print(state)
-# raise Exception("e")
-n_observations = len(state)
+n_observations = len(state[info[0]])
 
+# Initialize DQNs and optimizers
+agents = {}
+for i in range(4, 8):
+    agents[i] = {
+        "policy_net": DQN(n_observations, n_actions).to(device),
+        "target_net": DQN(n_observations, n_actions).to(device),
+        "memory": ReplayMemory(10000),
+    }
+    agents[i]["optimizer"] = optim.AdamW(
+        agents[i]["policy_net"].parameters(), lr=LR, amsgrad=True
+    )
+    agents[i]["target_net"].load_state_dict(agents[i]["policy_net"].state_dict())
 
-policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
-target_net.load_state_dict(policy_net.state_dict())
+# policy_net = DQN(n_observations, n_actions).to(device)
+# target_net = DQN(n_observations, n_actions).to(device)
+# target_net.load_state_dict(policy_net.state_dict())
 
-optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(10000)
+# optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
+# memory = ReplayMemory(10000)
 
 
 steps_done = 0
 ACTION = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
 
 
-def select_action(state):
+def select_action(a_id, state):
     global steps_done
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(
@@ -115,7 +125,8 @@ def select_action(state):
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1)[1].view(1, 1)
+            # return policy_net(state).max(1)[1].view(1, 1)
+            return agents[a_id]["policy_net"](state).max(1)[1].view(1, 1)
     else:
         return torch.tensor(
             [[random.choice([i for i in range(len(ACTION))])]],
@@ -153,10 +164,10 @@ def plot_durations(show_result=False):
             display.display(plt.gcf())
 
 
-def optimize_model():
-    if len(memory) < BATCH_SIZE:
+def optimize_model(agent):
+    if len(agent["memory"]) < BATCH_SIZE:
         return
-    transitions = memory.sample(BATCH_SIZE)
+    transitions = agent["memory"].sample(BATCH_SIZE)
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
@@ -177,7 +188,7 @@ def optimize_model():
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
+    state_action_values = agent["policy_net"](state_batch).gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -186,7 +197,9 @@ def optimize_model():
     # state value or 0 in case the state was final.
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
     with torch.no_grad():
-        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0]
+        next_state_values[non_final_mask] = agent["target_net"](
+            non_final_next_states
+        ).max(1)[0]
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
@@ -195,11 +208,11 @@ def optimize_model():
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Optimize the model
-    optimizer.zero_grad()
+    agent["optimizer"].zero_grad()
     loss.backward()
     # In-place gradient clipping
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-    optimizer.step()
+    torch.nn.utils.clip_grad_value_(agent["policy_net"].parameters(), 100)
+    agent["optimizer"].step()
 
 
 if torch.cuda.is_available():
@@ -211,13 +224,18 @@ win_count = 0
 for i_episode in range(num_episodes):
     # Initialize the environment and get it's state
     state, info = env.reset()
-    state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
-        action = select_action(state)
         actions = {}
+        actions_tensor = {}
         # just one agent
-        for _, v in info.items():
-            actions[v] = ACTION[int(action)]
+        for a_id in info:
+            one_state = torch.tensor(
+                state[a_id], dtype=torch.float32, device=device
+            ).unsqueeze(0)
+            # Tensor
+            action = select_action(a_id, one_state)
+            actions_tensor[a_id] = action
+            actions[a_id] = ACTION[int(action)]
 
         observation, reward, terminated, truncated, _ = env.step(actions)
         reward = torch.tensor([reward], device=device)
@@ -230,29 +248,39 @@ for i_episode in range(num_episodes):
             if game_result["players"][1]["score"] > game_result["players"][0]["score"]:
                 win_count += 1
             next_state = None
-        else:
-            next_state = torch.tensor(
-                observation, dtype=torch.float32, device=device
-            ).unsqueeze(0)
+        # else:
+        #     next_state = torch.tensor(
+        #         observation, dtype=torch.float32, device=device
+        #     ).unsqueeze(0)
 
         # Store the transition in memory
-        memory.push(state, action, next_state, reward)
+        # memory.push(state, action, next_state, reward)
+        for a_id in info:
+            one_state = torch.tensor(
+                state[a_id], dtype=torch.float32, device=device
+            ).unsqueeze(0)
+            one_next_state = torch.tensor(
+                observation[a_id], dtype=torch.float32, device=device
+            ).unsqueeze(0)
+            one_action = actions_tensor[a_id]
+            agents[a_id]["memory"].push(one_state, one_action, one_next_state, reward)
 
         # Move to the next state
-        state = next_state
+        state = observation
 
         # Perform one step of the optimization (on the policy network)
-        optimize_model()
+        for a_id, agent in agents.items():
+            optimize_model(agent)
 
-        # Soft update of the target network's weights
-        # θ′ ← τ θ + (1 −τ )θ′
-        target_net_state_dict = target_net.state_dict()
-        policy_net_state_dict = policy_net.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[
-                key
-            ] * TAU + target_net_state_dict[key] * (1 - TAU)
-        target_net.load_state_dict(target_net_state_dict)
+            # Soft update of the target network's weights
+            # θ′ ← τ θ + (1 −τ )θ′
+            target_net_state_dict = agent["target_net"].state_dict()
+            policy_net_state_dict = agent["policy_net"].state_dict()
+            for key in policy_net_state_dict:
+                target_net_state_dict[key] = policy_net_state_dict[
+                    key
+                ] * TAU + target_net_state_dict[key] * (1 - TAU)
+            agent["target_net"].load_state_dict(target_net_state_dict)
 
         if done:
             episode_durations.append(t + 1)

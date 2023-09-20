@@ -55,11 +55,6 @@ def handle_agent(agent) -> str:
         global_coin_list[nearest_coin_idx][0],
         global_coin_list[nearest_coin_idx][1],
     )
-    print("-----------------")
-    print(current_pos)
-    print(move_to)
-    # print(block_list)
-    print(attacker_location)
     return rust_perf.get_direction(current_pos, move_to, block_list)
 
 
@@ -89,7 +84,7 @@ while not game.is_over():
     defender_actions = {
         _id: handle_agent(defender_state[_id]) for _id in defender_state.keys()
     }
-    print(game.steps)
+    # print(game.steps)
     # print(defender_actions)
     # print(defender_state)
     total_score = 0

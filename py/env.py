@@ -114,12 +114,16 @@ class Marathon(Game):
             ind += 1
             obs[ind] = wall["y"]
             ind += 1
+            if ind + 1 == 256:
+                return obs
 
         for coin in state["coins"]:
             obs[ind] = coin["x"]
             ind += 1
             obs[ind] = coin["y"]
             ind += 1
+            if ind + 1 == 256:
+                return obs
 
         for oa in state["other_agents"]:
             obs[ind] = oa["score"]
@@ -130,4 +134,6 @@ class Marathon(Game):
             ind += 1
             obs[ind] = oa["y"]
             ind += 1
+            if ind + 1 == 256:
+                return obs
         return obs

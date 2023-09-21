@@ -49,11 +49,14 @@ pub fn a_star_search(start: Point, end: Point, enemies: Vec<Point>) -> Option<Ve
             (0, 0, Direction::Stay),
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
-            (0, -1, Direction::Down),
-            (0, 1, Direction::Up),
+            (0, 1, Direction::Down),
+            (0, -1, Direction::Up),
         ] {
             let mut next = (point.0 + i, point.1 + j);
             if next.0 < 0 || next.0 >= conf::WIDTH || next.1 < 0 || next.1 >= conf::HEIGHT {
+                continue;
+            }
+            if visited.contains(&next) || banned_points.contains(&next) {
                 continue;
             }
 
@@ -64,14 +67,6 @@ pub fn a_star_search(start: Point, end: Point, enemies: Vec<Point>) -> Option<Ve
                 .unwrap_or(99);
             if index != 99 {
                 next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-                // println!(
-                //     "{},{} - PORTAL MOVE: {}, {}",
-                //     point.0, point.1, next.0, next.1
-                // );
-            }
-
-            if visited.contains(&next) || banned_points.contains(&next) {
-                continue;
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;

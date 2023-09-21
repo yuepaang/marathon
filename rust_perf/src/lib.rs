@@ -64,8 +64,8 @@ impl Direction {
     fn get_next_pos(&self, pos: Point) -> Point {
         match self {
             Direction::Stay => (pos.0, pos.1),
-            Direction::Up => (pos.0, pos.1 + 1),
-            Direction::Down => (pos.0, pos.1 - 1),
+            Direction::Up => (pos.0, pos.1 - 1),
+            Direction::Down => (pos.0, pos.1 + 1),
             Direction::Left => (pos.0 - 1, pos.1),
             Direction::Right => (pos.0 + 1, pos.1),
         }
@@ -105,8 +105,8 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
         for &(i, j, direction) in &[
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
-            (0, -1, Direction::Down),
-            (0, 1, Direction::Up),
+            (0, 1, Direction::Down),
+            (0, -1, Direction::Up),
         ] {
             let mut next = (point.0 + i, point.1 + j);
 
@@ -174,8 +174,8 @@ fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(usiz
         for &(i, j, direction) in &[
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
-            (0, -1, Direction::Down),
-            (0, 1, Direction::Up),
+            (0, 1, Direction::Down),
+            (0, -1, Direction::Up),
         ] {
             let mut next = (point.0 + i, point.1 + j);
 
@@ -231,20 +231,11 @@ fn get_direction_path(
 fn collect_coins_with_enemy(
     mut start: Point,
     enemies_position: Vec<Point>,
-    eatten_coins: HashSet<Point>,
+    mut eatten_coins: HashSet<Point>,
 ) -> PyResult<(Vec<Point>, usize)> {
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
-    let mut coins_set: HashSet<Point> = conf::COINS
-        .iter()
-        .filter(|x| !eatten_coins.contains(x))
-        .filter(|x| !enemies_position.contains(x))
-        .map(|x| (x.0, x.1))
-        .collect();
-    let mut change_target = true;
-    let mut sp = Vec::new();
     let mut search_depth = 0;
-    // println!("coins' size: {}", coins_set.len());
     loop {
         // Pre-calculate ememy's next position
         let next_enemies = enemies_position
@@ -253,53 +244,41 @@ fn collect_coins_with_enemy(
             .collect::<Vec<Point>>();
 
         search_depth += 1;
-        let coins: Vec<Point> = coins_set.iter().cloned().collect();
+        let coins: Vec<Point> = conf::COINS
+            .iter()
+            .filter(|x| !eatten_coins.contains(&x) && !enemies_position.contains(&x))
+            .map(|x| (x.0, x.1))
+            .collect();
 
-        if coins.is_empty() || search_depth > 5 {
-            // println!(
-            //     "Start reach all coins!{}, ({},{})",
-            //     coins.len(),
-            //     start.0,
-            //     start.1
-            // );
+        if coins.is_empty() || search_depth > 9 {
+            // if total_path.len() == 0 {
+            //     println!(
+            //         "break? --------------{}*****************{}-------{}---{}",
+            //         coins.len(),
+            //         eatten_coins.len(),
+            //         search_depth,
+            //         enemies_position.len(),
+            //     );
+            // }
             break;
         }
-        if change_target {
-            let paths: Vec<Vec<Point>> = coins
-                .iter()
-                .filter_map(|&coin| algo::a_star_search(start, coin, next_enemies.clone()))
-                .collect();
 
-            if paths.is_empty() {
-                // println!("Couldn't reach all coins!");
-                return Ok((vec![], 0));
-            }
-            sp = paths
-                .iter()
-                .filter(|path| path.len() > 0)
-                .min_by_key(|path| path.len())
-                .unwrap()
-                .clone();
+        let paths: Vec<Vec<Point>> = coins
+            .iter()
+            .filter_map(|&coin| algo::a_star_search(start, coin, next_enemies.clone()))
+            .collect();
 
-            // println!("sp size: {}, coin: {}", sp.len(), coins.len());
-            // if sp.len() == 0 {
-            //     for path in paths {
-            //         println!("path: {:?}-{:?}", path[0], path[1]);
-            //         println!("{}", path.len());
-            //     }
-            // }
-            total_path.extend_from_slice(&sp[..sp.len() - 1]);
-            change_target = false;
+        if paths.is_empty() {
+            // println!("--------------*****************");
+            return Ok((vec![], 0));
         }
 
-        start = sp.pop().unwrap();
-        if coins_set.contains(&start) {
-            // println!("Catch coin! Remaining coins: {}", agent_coins_score);
-            coins_set.remove(&start);
-            agent_coins_score += 2;
-            change_target = true;
-        }
-        // println!("The next point is ({}, {})", start.0, start.1);
+        let sp = paths.iter().min_by_key(|path| path.len()).unwrap();
+        total_path.extend_from_slice(&sp[..sp.len()]);
+
+        start = *sp.last().unwrap();
+        eatten_coins.insert((start.0, start.1));
+        agent_coins_score += 2;
     }
 
     Ok((total_path, agent_coins_score))

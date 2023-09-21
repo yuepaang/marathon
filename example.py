@@ -4,21 +4,20 @@ import random
 
 import rust_perf
 
+ACTIONS = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
 
 with open("map.json") as f:
     global_map = json.load(f)["map"]
 
-global_coin_list = list()
-global_wall_list = list()
+global_coin_set = set()
 ban_idx = set()
 for cell in global_map:
     x = cell["x"]
     y = cell["y"]
     cell_type = cell["type"]
     if cell_type == "COIN":
-        global_coin_list.append((x, y))
-    if cell_type == "WALL":
-        global_wall_list.append((x, y))
+        global_coin_set.add((x, y))
+eatten_set = set()
 
 
 def get_distance(pos1, pos2):
@@ -27,35 +26,47 @@ def get_distance(pos1, pos2):
 
 def handle_agent(agent) -> str:
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
+    print(agent["self_agent"]["id"], current_pos)
 
-    for i, coin in enumerate(global_coin_list):
-        if coin[0] == current_pos[0] and coin[1] == current_pos[1]:
-            ban_idx.add(i)
-            break
+    if current_pos in global_coin_set:
+        eatten_set.add(current_pos)
 
     other_agent_list = agent["other_agents"]
-
-    block_list = [wall for wall in global_wall_list]
-    attacker_location = set()
+    attacker_location = []
     for other_agent in other_agent_list:
         if other_agent["role"] == "ATTACKER":
-            block_list.append((other_agent["x"], other_agent["y"]))
-            attacker_location.add((other_agent["x"], other_agent["y"]))
+            attacker_location.append((other_agent["x"], other_agent["y"]))
 
-    coins_distance_list = [
-        get_distance(current_pos, (coin[0], coin[1]))
-        if i not in ban_idx and (coin not in attacker_location)
-        else 999
-        for i, coin in enumerate(global_coin_list)
-    ]
-    if min(coins_distance_list) == 999:
-        raise Exception("no road")
-    nearest_coin_idx = coins_distance_list.index(min(coins_distance_list))
-    move_to = (
-        global_coin_list[nearest_coin_idx][0],
-        global_coin_list[nearest_coin_idx][1],
+    if attacker_location is None:
+        attacker_location = (22, 0)
+
+    # print(current_pos, attacker_location)
+    path, expected_score = rust_perf.collect_coins_with_enemy(
+        current_pos, attacker_location, eatten_set
     )
-    return rust_perf.get_direction(current_pos, move_to, block_list)
+    print(path, expected_score)
+    if len(path) == 0:
+        print(current_pos, attacker_location, eatten_set)
+        raise Exception("e")
+        return random.choice(ACTIONS)
+    else:
+        return get_direction(current_pos, path[0])
+    # return rust_perf.get_direction(current_pos, move_to, block_list)
+
+
+def get_direction(curr, next):
+    if curr[1] == next[1]:
+        if next[0] > curr[0]:
+            return "RIGHT"
+        else:
+            return "LEFT"
+    elif curr[0] == next[0]:
+        if next[1] > curr[1]:
+            return "UP"
+        else:
+            return "DOWN"
+    else:
+        return "STAY"
 
 
 # load map
@@ -65,7 +76,8 @@ game = Game(map)
 
 
 # init game
-seed = random.randint(0, 10000)
+# seed = random.randint(0, 10000)
+seed = 8888
 game.reset_game(attacker="attacker", defender="defender", seed=seed)
 
 # game loop
@@ -75,7 +87,6 @@ while not game.is_over():
     defender_state = game.get_agent_states_by_player("defender")
 
     # apply actions for agents:
-    ACTIONS = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
     attacker_actions = {_id: random.choice(ACTIONS) for _id in attacker_state.keys()}
     # defender_actions =  { _id: random.choice(ACTIONS) for _id in defender_state.keys() }
     # for k, v in defender_state.items():
@@ -84,7 +95,7 @@ while not game.is_over():
     defender_actions = {
         _id: handle_agent(defender_state[_id]) for _id in defender_state.keys()
     }
-    # print(game.steps)
+    print("step: ", game.steps)
     # print(defender_actions)
     # print(defender_state)
     total_score = 0

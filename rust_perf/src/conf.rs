@@ -1,3 +1,6 @@
+pub const WIDTH: i32 = 24;
+pub const HEIGHT: i32 = 24;
+
 pub const WALLS: &[(i32, i32)] = &[
     (2, 2),
     (3, 2),

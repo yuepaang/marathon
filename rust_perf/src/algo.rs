@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::conf;
+use crate::distance;
 use crate::Direction;
 use crate::Node;
 use crate::Point;
@@ -178,4 +179,43 @@ pub fn a_star_search_power(
         passwall -= 1;
     }
     None
+}
+
+pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
+    let mut escape_path = Vec::new();
+    let need_escape = enemies
+        .iter()
+        .map(|&e| distance(start, e))
+        .filter(|&d| d < 3 as usize)
+        .collect::<Vec<usize>>();
+    if !need_escape.is_empty() {
+        for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+            let next = (start.0 + i, start.1 + j);
+            if next.0 < 0 || next.0 >= conf::WIDTH || next.1 < 0 || next.1 >= conf::HEIGHT {
+                continue;
+            }
+            let mut flag = false;
+            conf::WALLS.iter().for_each(|&w| {
+                if w == next {
+                    flag = true;
+                }
+            });
+            if flag {
+                continue;
+            }
+
+            flag = false;
+            enemies.iter().for_each(|&e| {
+                if distance(next, e) <= distance(start, e) {
+                    flag = true;
+                }
+            });
+            if flag {
+                continue;
+            }
+            escape_path.push(next);
+        }
+    }
+
+    escape_path
 }

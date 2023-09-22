@@ -14,6 +14,8 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
 
+use crate::algo::deal_with_enemy_nearby;
+
 mod algo;
 mod conf;
 
@@ -290,7 +292,6 @@ fn collect_coins(
 // BASELINE with some simple strategies
 #[pyfunction]
 fn collect_coins_using_powerup(
-    pre: Point,
     mut start: Point,
     mut eatten_coins: HashSet<Point>,
     enemies_position: Vec<Point>,
@@ -301,6 +302,14 @@ fn collect_coins_using_powerup(
     let mut total_path = Vec::new();
     let mut search_depth = 0;
     let mut no_coin_situation = false;
+
+    // check escape first
+    let escape_path = deal_with_enemy_nearby(start, enemies_position.clone());
+    if !escape_path.is_empty() {
+        // println!("{}, {}-EARLY escape", start.0, start.1);
+        return Ok((escape_path, 0));
+    }
+
     loop {
         // Pre-calculate ememy's next position
         let next_enemies = enemies_position
@@ -355,7 +364,6 @@ fn collect_coins_using_powerup(
         let empty_path = vec![];
         let mut sp = paths
             .iter()
-            .filter(|path| path[0].0 != pre.0 || path[0].1 != pre.1)
             .min_by_key(|path| path.len())
             .unwrap_or(&empty_path);
 

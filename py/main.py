@@ -42,6 +42,7 @@ def handle_agent(agent: marathon.Agent) -> str:
 class RealGame(marathon.Game):
     def __init__(self, match_id):
         super().__init__(match_id=match_id)
+        self.picked_coin_set = set()
 
     def on_game_start(self, data):
         pass

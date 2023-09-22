@@ -11,6 +11,7 @@ use std::{
 };
 
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use std::collections::HashMap;
 
 mod algo;
@@ -228,48 +229,50 @@ fn get_direction_path(
 }
 
 #[pyfunction]
-fn collect_coins_with_enemy(
+fn check_two_enemies_move(start: Point, enemies_position: Vec<Point>) -> PyResult<String> {
+    let mut is_diag = true;
+    for enemy in enemies_position {
+        if (enemy.0 - start.0).abs() != 1 || (enemy.1 - start.1).abs() != 1 {
+            is_diag = false;
+            break;
+        }
+    }
+    if is_diag {
+        Ok("STAY".to_string())
+    } else {
+        Ok("NO".to_string())
+    }
+}
+
+// BASELINE
+#[pyfunction]
+fn collect_coins(
     mut start: Point,
-    enemies_position: Vec<Point>,
     mut eatten_coins: HashSet<Point>,
 ) -> PyResult<(Vec<Point>, usize)> {
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
-    let mut search_depth = 0;
+    let mut search_coins = 0;
+    let depth = 9;
     loop {
         // Pre-calculate ememy's next position
-        let next_enemies = enemies_position
-            .iter()
-            .map(|&enemy| algo::move_enemy(enemy.clone(), start))
-            .collect::<Vec<Point>>();
-
-        search_depth += 1;
+        search_coins += 1;
         let coins: Vec<Point> = conf::COINS
-            .iter()
-            .filter(|x| !eatten_coins.contains(&x) && !enemies_position.contains(&x))
+            .par_iter()
+            .filter(|x| !eatten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
 
-        if coins.is_empty() || search_depth > 9 {
-            // if total_path.len() == 0 {
-            //     println!(
-            //         "break? --------------{}*****************{}-------{}---{}",
-            //         coins.len(),
-            //         eatten_coins.len(),
-            //         search_depth,
-            //         enemies_position.len(),
-            //     );
-            // }
+        if coins.is_empty() || search_coins > depth {
             break;
         }
 
         let paths: Vec<Vec<Point>> = coins
             .iter()
-            .filter_map(|&coin| algo::a_star_search(start, coin, next_enemies.clone()))
+            .filter_map(|&coin| algo::a_star_search(start, coin))
             .collect();
 
         if paths.is_empty() {
-            // println!("--------------*****************");
             return Ok((vec![], 0));
         }
 
@@ -284,10 +287,106 @@ fn collect_coins_with_enemy(
     Ok((total_path, agent_coins_score))
 }
 
+// BASELINE with some simple strategies
+#[pyfunction]
+fn collect_coins_using_powerup(
+    pre: Point,
+    mut start: Point,
+    mut eatten_coins: HashSet<Point>,
+    enemies_position: Vec<Point>,
+    mut pass_wall: usize,
+) -> PyResult<(Vec<Point>, usize)> {
+    let origin = start.clone();
+    let mut agent_coins_score = 0;
+    let mut total_path = Vec::new();
+    let mut search_depth = 0;
+    let mut no_coin_situation = false;
+    loop {
+        // Pre-calculate ememy's next position
+        let next_enemies = enemies_position
+            .iter()
+            .map(|&enemy| algo::move_enemy(enemy.clone(), start))
+            .collect::<Vec<Point>>();
+
+        search_depth += 1;
+        let coins: Vec<Point> = conf::COINS
+            .par_iter()
+            .chain(conf::POWERUPS.par_iter())
+            .filter(|x| !eatten_coins.contains(&x))
+            .map(|x| (x.0, x.1))
+            .collect();
+
+        if coins.is_empty() || search_depth > 5 {
+            break;
+        }
+        let mut to_avoid_enemies = vec![];
+        if search_depth == 1 {
+            to_avoid_enemies = enemies_position
+                .iter()
+                .chain(next_enemies.iter())
+                .cloned()
+                .collect();
+        }
+
+        let mut paths: Vec<Vec<Point>> = coins
+            .par_iter()
+            .filter_map(|&coin| {
+                algo::a_star_search_power(start, coin, to_avoid_enemies.clone(), pass_wall)
+            })
+            .collect();
+
+        if paths.is_empty() {
+            println!("NO COINS CATCHED");
+            paths = conf::DEFENDER_BASE
+                .par_iter()
+                .filter_map(|&coin| {
+                    algo::a_star_search_power(start, coin, to_avoid_enemies.clone(), pass_wall)
+                })
+                .collect();
+            no_coin_situation = true;
+        }
+
+        if no_coin_situation && paths.is_empty() {
+            println!("NEED STAY");
+            total_path.push(origin);
+            break;
+        }
+
+        let empty_path = vec![];
+        let mut sp = paths
+            .iter()
+            .filter(|path| path[0].0 != pre.0 || path[0].1 != pre.1)
+            .min_by_key(|path| path.len())
+            .unwrap_or(&empty_path);
+
+        if sp.len() == 0 {
+            sp = paths.iter().min_by_key(|path| path.len()).unwrap();
+        }
+        total_path.extend_from_slice(&sp[..sp.len()]);
+
+        if no_coin_situation {
+            break;
+        }
+
+        start = *sp.last().unwrap();
+        eatten_coins.insert((start.0, start.1));
+        agent_coins_score += 2;
+        pass_wall -= sp.len();
+    }
+
+    if total_path.len() == 0 {
+        println!("no total path generated.")
+    }
+
+    Ok((total_path, agent_coins_score))
+}
+
 #[pymodule]
 fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_direction, m)?)?;
     m.add_function(wrap_pyfunction!(get_direction_path, m)?)?;
-    m.add_function(wrap_pyfunction!(collect_coins_with_enemy, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_coins, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_coins_using_powerup, m)?)?;
+    m.add_function(wrap_pyfunction!(check_two_enemies_move, m)?)?;
     Ok(())
 }

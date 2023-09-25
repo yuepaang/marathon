@@ -50,7 +50,7 @@ def get_direction(curr, next):
         return "ERROR"
 
 
-def handle_agent(agent: marathon.Agent, eaten_set, prev_start) -> str:
+def handle_agent(agent: marathon.Agent, eaten_set, step) -> str:
     agent_id = agent.self_agent.id
     current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
 
@@ -83,10 +83,9 @@ def handle_agent(agent: marathon.Agent, eaten_set, prev_start) -> str:
         if next_move != "NO":
             return next_move
 
-    prev_point = current_pos if len(prev_start) == 0 else prev_start[agent_id]
-
     path, _ = rust_perf.collect_coins_using_powerup(
-        prev_point,
+        step,
+        agent_id,
         current_pos,
         eaten_set,
         attacker_location,
@@ -109,22 +108,21 @@ def handle_agent(agent: marathon.Agent, eaten_set, prev_start) -> str:
 class RealGame(marathon.Game):
     def __init__(self, match_id):
         super().__init__(match_id=match_id)
-        self.prev_start = {}
+        self.step = 0
         self.eaten_set = set()
 
     def on_game_start(self, data):
         self.eaten_set = set()
+        self.step = 0
 
     def on_game_state(self, data: marathon.MessageGameState):
+        self.step += 1
         action = {}
-        prev_start = {}
         for k, v in data.get_states().items():
             if v.get_role() == "DEFENDER":
-                action[k] = handle_agent(v, self.eaten_set, self.prev_start)
-                prev_start[v.self_agent.id] = (v.get_pos()["x"], v.get_pos()["y"])
+                action[k] = handle_agent(v, self.eaten_set, self.step)
             else:
                 action[k] = random.choice(ACTIONS)
-        self.prev_start = prev_start
         return action
 
     def on_game_end(self, data):

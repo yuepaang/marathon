@@ -307,9 +307,9 @@ fn collect_coins_using_powerup(
     let mut total_path = Vec::new();
     let mut no_coin_situation = false;
 
-    let coins_vec: Vec<Point> = conf::COINS.iter().map(|x| (x.0, x.1)).collect();
-    let hull_points = algo::graham_hull(coins_vec);
-    println!("hull points: {:?}", hull_points);
+    // let coins_vec: Vec<Point> = conf::COINS.iter().map(|x| (x.0, x.1)).collect();
+    // let hull_points = algo::graham_hull(coins_vec);
+    // println!("hull points: {:?}", hull_points);
 
     // check escape strategy
     let escape_path = deal_with_enemy_nearby(start, enemies_position.clone());
@@ -431,6 +431,84 @@ fn collect_coins_using_powerup(
 
     Ok((total_path, agent_coins_score))
 }
+
+// PERF: all agents parallel
+// #[pyfunction]
+// fn explore_n_round_possibility(
+//     mut start: Point,
+//     mut eaten_coins: HashSet<Point>,
+//     enemies_position: Vec<Point>,
+//     mut pass_wall: usize,
+//     search_depth: usize,
+// ) -> PyResult<(Vec<Point>, usize)> {
+//     let origin = start.clone();
+
+//     let mut agent_coins_score = 0;
+//     let mut total_path = Vec::new();
+//     let mut no_coin_situation = false;
+
+//     let mut round = 0;
+
+//     // find the potential move with greatest coin score
+
+//     let mut point = star
+//     loop {
+//         if round > search_depth {
+//             break;
+//         }
+//         round += 1;
+//         // enumerate
+//         for &(i, j, direction) in &[
+//             (0, 0, Direction::Stay),
+//             (-1, 0, Direction::Left),
+//             (1, 0, Direction::Right),
+//             (0, 1, Direction::Down),
+//             (0, -1, Direction::Up),
+//         ] {
+//             let mut next = (point.0 + i, point.1 + j);
+//             if next.0 < 0 || next.0 >= conf::WIDTH || next.1 < 0 || next.1 >= conf::HEIGHT {
+//                 continue;
+//             }
+//             if visited.contains(&next) {
+//                 continue;
+//             }
+//             if enemies.contains(&next) {
+//                 continue;
+//             }
+//             if passwall <= 0 {
+//                 if banned_points.contains(&next) {
+//                     continue;
+//                 }
+//             }
+
+//             // PORTAL MOVE
+//             let index = conf::PORTALS
+//                 .iter()
+//                 .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+//                 .unwrap_or(99);
+//             if index != 99 {
+//                 next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+//             }
+
+//             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+//             if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+//                 came_from.insert(next, (direction, point));
+//                 g_scores.insert(next, tentative_g_score);
+//                 let f_score = tentative_g_score + crate::distance(next, end);
+//                 to_visit.push(Node {
+//                     cost: f_score,
+//                     point: next,
+//                 });
+//             }
+//         }
+//     }
+
+//     if total_path.len() == 0 {
+//         println!("no total path generated.")
+//     }
+
+//     Ok((total_path, agent_coins_score))
+// }
 
 #[pymodule]
 fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {

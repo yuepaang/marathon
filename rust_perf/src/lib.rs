@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
 
-use crate::algo::deal_with_enemy_nearby;
+use crate::algo::{deal_with_enemy_nearby, dfs};
 
 mod algo;
 mod conf;
@@ -432,83 +432,56 @@ fn collect_coins_using_powerup(
     Ok((total_path, agent_coins_score))
 }
 
+#[derive(Clone, Eq, PartialEq)]
+struct ScoreNode {
+    point: Point,
+    score: usize,
+}
+
+impl Ord for ScoreNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.score.cmp(&self.score)
+    }
+}
+
+impl PartialOrd for ScoreNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 // PERF: all agents parallel
-// #[pyfunction]
-// fn explore_n_round_possibility(
-//     mut start: Point,
-//     mut eaten_coins: HashSet<Point>,
-//     enemies_position: Vec<Point>,
-//     mut pass_wall: usize,
-//     search_depth: usize,
-// ) -> PyResult<(Vec<Point>, usize)> {
-//     let origin = start.clone();
+#[pyfunction]
+fn explore_n_round_possibility(
+    start: Point,
+    real_eaten_coins: HashSet<Point>,
+    enemies_position: Vec<Point>,
+    pass_wall: usize,
+    // search_depth: usize,
+) -> PyResult<Vec<f32>> {
+    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    banned_points.insert((23, 0));
 
-//     let mut agent_coins_score = 0;
-//     let mut total_path = Vec::new();
-//     let mut no_coin_situation = false;
+    // STAY, LEFT, RIGHT, DOWN, UP
+    let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
 
-//     let mut round = 0;
+    let mut eaten_coins = real_eaten_coins.clone();
 
-//     // find the potential move with greatest coin score
+    dfs(
+        start,
+        0,
+        pass_wall,
+        start,
+        vec![],
+        &mut eaten_coins,
+        &enemies_position,
+        &banned_points,
+        &mut action_scores,
+        -1,
+    );
 
-//     let mut point = star
-//     loop {
-//         if round > search_depth {
-//             break;
-//         }
-//         round += 1;
-//         // enumerate
-//         for &(i, j, direction) in &[
-//             (0, 0, Direction::Stay),
-//             (-1, 0, Direction::Left),
-//             (1, 0, Direction::Right),
-//             (0, 1, Direction::Down),
-//             (0, -1, Direction::Up),
-//         ] {
-//             let mut next = (point.0 + i, point.1 + j);
-//             if next.0 < 0 || next.0 >= conf::WIDTH || next.1 < 0 || next.1 >= conf::HEIGHT {
-//                 continue;
-//             }
-//             if visited.contains(&next) {
-//                 continue;
-//             }
-//             if enemies.contains(&next) {
-//                 continue;
-//             }
-//             if passwall <= 0 {
-//                 if banned_points.contains(&next) {
-//                     continue;
-//                 }
-//             }
-
-//             // PORTAL MOVE
-//             let index = conf::PORTALS
-//                 .iter()
-//                 .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-//                 .unwrap_or(99);
-//             if index != 99 {
-//                 next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-//             }
-
-//             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-//             if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
-//                 came_from.insert(next, (direction, point));
-//                 g_scores.insert(next, tentative_g_score);
-//                 let f_score = tentative_g_score + crate::distance(next, end);
-//                 to_visit.push(Node {
-//                     cost: f_score,
-//                     point: next,
-//                 });
-//             }
-//         }
-//     }
-
-//     if total_path.len() == 0 {
-//         println!("no total path generated.")
-//     }
-
-//     Ok((total_path, agent_coins_score))
-// }
+    Ok(action_scores)
+}
 
 #[pymodule]
 fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -517,5 +490,6 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(collect_coins, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_powerup, m)?)?;
     m.add_function(wrap_pyfunction!(check_two_enemies_move, m)?)?;
+    m.add_function(wrap_pyfunction!(explore_n_round_possibility, m)?)?;
     Ok(())
 }

@@ -12,6 +12,7 @@ with open("map.json") as f:
 
 global_coin_set = set()
 global_powerup_set = set()
+global_portal_map = {}
 ban_idx = set()
 for cell in global_map:
     x = cell["x"]
@@ -21,14 +22,16 @@ for cell in global_map:
         global_coin_set.add((x, y))
     if cell_type == "POWERUP":
         global_powerup_set.add((x, y))
+    if cell_type == "PORTAL":
+        global_portal_map[(x, y)] = (cell["pair"]["x"], cell["pair"]["y"])
 
 
 def get_distance(pos1, pos2):
     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
-def use_defender(agent, eatten_set) -> str:
-    # saft phrase
+def use_defender(agent, eaten_set, step) -> str:
+    # safe phrase
 
     agent_id = agent["self_agent"]["id"]
 
@@ -41,9 +44,14 @@ def use_defender(agent, eatten_set) -> str:
 
     # record locations have been arrived
     if current_pos in global_coin_set:
-        eatten_set.add(current_pos)
+        eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
-        eatten_set.add(current_pos)
+        eaten_set.add(current_pos)
+
+    # attack powerup
+    for owned_powerup in agent["powerups"]:
+        if owned_powerup.get("powerup") == 4:
+            eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
 
     # enemies in out vision
     other_agent_list = agent["other_agents"]
@@ -61,9 +69,11 @@ def use_defender(agent, eatten_set) -> str:
             # raise Exception("early")
             return next_move
 
-    path, potential_score = rust_perf.collect_coins_using_powerup(
+    path, _ = rust_perf.collect_coins_using_powerup(
+        step,
+        agent_id,
         current_pos,
-        eatten_set,
+        eaten_set,
         attacker_location,
         passwall,
     )
@@ -75,11 +85,10 @@ def use_defender(agent, eatten_set) -> str:
             passwall,
             agent["self_agent"]["powerups"],
             attacker_location,
-            len(eatten_set),
-            eatten_set,
+            len(eaten_set),
+            eaten_set,
         )
         print(agent["other_agents"])
-        print(previous_loc)
         raise Exception("no path")
         return random.choice(ACTIONS)
     else:
@@ -95,38 +104,42 @@ def use_defender(agent, eatten_set) -> str:
         #     # potential_score,
         # )
         # print(agent["self_agent"]["id"], path, current_pos, next_move, score)
-        if next_move == "ERROR":
-            print(
-                agent_id,
-                current_pos,
-                "path: ",
-                ["COIN" if p in global_coin_set else p for p in path],
-                potential_score,
-            )
-            print(previous_loc)
-            raise Exception("why")
+
+        # if next_move == "ERROR":
+        #     print(
+        #         agent_id,
+        #         current_pos,
+        #         "path: ",
+        #         ["COIN" if p in global_coin_set else p for p in path],
+        #         potential_score,
+        #     )
+        #     next_move = "STAY"
         return next_move
     # return rust_perf.get_direction(current_pos, move_to, block_list)
 
 
 def get_direction(curr, next):
-    if curr[1] == next[1]:
-        if next[0] == curr[0]:
+    true_next = next
+
+    if curr[1] == true_next[1]:
+        if true_next[0] == curr[0]:
             return "STAY"
-        elif next[0] == curr[0] + 1:
+        elif true_next[0] == curr[0] + 1:
             return "RIGHT"
-        elif next[0] == curr[0] - 1:
+        elif true_next[0] == curr[0] - 1:
             return "LEFT"
         else:
             return "ERROR"
-    elif curr[0] == next[0]:
-        if next[1] == curr[1] + 1:
+    elif curr[0] == true_next[0]:
+        if true_next[1] == curr[1] + 1:
             return "DOWN"
-        elif next[1] == curr[1] - 1:
+        elif true_next[1] == curr[1] - 1:
             return "UP"
         else:
             return "ERROR"
     else:
+        print(curr, true_next, next)
+        raise Exception("e")
         return "ERROR"
 
 
@@ -140,13 +153,15 @@ game = Game(map)
 # seed = random.randint(0, 10000)
 # seed = 8878
 win_count = 0
-seeds = [random.randint(0, 1000000) for _ in range(10)]
+attacker_score = 0
+defender_score = 0
+seeds = [random.randint(0, 1000000) for _ in range(5)]
 # seeds = [7437]
 for seed in seeds:
     game.reset_game(attacker="attacker", defender="defender", seed=seed)
 
-    previous_loc = {}
     eatten_set = set()
+    step = 0
     start_game_time = time.time()
     # game loop
     while not game.is_over():
@@ -158,30 +173,15 @@ for seed in seeds:
         attacker_actions = {
             _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         }
-        # defender_actions =  { _id: random.choice(ACTIONS) for _id in defender_state.keys() }
-        # for k, v in defender_state.items():
-        #     print(v)
-        #     raise Exception("e")
         defender_actions = {
-            _id: use_defender(defender_state[_id], eatten_set)
+            _id: use_defender(defender_state[_id], eatten_set, step)
             for _id in defender_state.keys()
         }
-        # print("step: ", game.steps)
-        # print(defender_actions)
-        # print(defender_state)
-        # total_score = 0
-        # for _, v in attacker_state.items():
-        #     total_score += v["self_agent"]["score"]
-        # # print("Score: ", total_score)
-        # if total_score > 0:
-        #     raise Exception("e")
-        previous_loc = {
-            _id: (v["self_agent"]["x"], v["self_agent"]["y"])
-            for _id, v in defender_state.items()
-        }
+
         game.apply_actions(
             attacker_actions=attacker_actions, defender_actions=defender_actions
         )
+        step += 1
 
     # get game result
     print(f"seed: {seed} --- game result:\r\n", game.get_result())
@@ -191,5 +191,8 @@ for seed in seeds:
         < game.get_result()["players"][1]["score"]
     ):
         win_count += 1
+    attacker_score += game.get_result()["players"][0]["score"]
+    defender_score += game.get_result()["players"][1]["score"]
 
 print("Win rate is ", win_count / len(seeds))
+print(f"Attacker score: {attacker_score} vs Defender score: {defender_score}")

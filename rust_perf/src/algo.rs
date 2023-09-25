@@ -188,12 +188,24 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
         .map(|&e| distance(start, e))
         .filter(|&d| d < 3 as usize)
         .collect::<Vec<usize>>();
+
     if !need_escape.is_empty() {
         for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
-            let next = (start.0 + i, start.1 + j);
+            let mut next = (start.0 + i, start.1 + j);
             if next.0 < 0 || next.0 >= conf::WIDTH || next.1 < 0 || next.1 >= conf::HEIGHT {
                 continue;
             }
+
+            let true_next = next.clone();
+            // PORTAL MOVE
+            let index = conf::PORTALS
+                .iter()
+                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+                .unwrap_or(99);
+            if index != 99 {
+                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+            }
+
             let mut flag = false;
             conf::WALLS.iter().for_each(|&w| {
                 if w == next {
@@ -206,16 +218,61 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
 
             flag = false;
             enemies.iter().for_each(|&e| {
-                if distance(next, e) <= distance(start, e) {
+                if distance(next, e) < distance(start, e) {
                     flag = true;
                 }
             });
             if flag {
                 continue;
             }
-            escape_path.push(next);
+            println!(
+                "start{:?}, enemies: {:?}, next: {:?}",
+                start, enemies, true_next
+            );
+            escape_path.push(true_next);
         }
     }
 
     escape_path
+}
+
+fn orientation(p: Point, q: Point, r: Point) -> i32 {
+    let val = (q.1 - p.1) * (r.0 - q.0) - (q.0 - p.0) * (r.1 - q.1);
+    if val == 0 {
+        0
+    } else if val > 0 {
+        1
+    } else {
+        -1
+    }
+}
+
+pub fn graham_hull(points: Vec<Point>) -> Vec<Point> {
+    let mut points = points.clone();
+    points.sort_by(|p, q| p.0.cmp(&q.0).then(p.1.cmp(&q.1)));
+
+    let mut lower = Vec::new();
+    for &p in points.iter() {
+        while lower.len() >= 2
+            && orientation(lower[lower.len() - 2], *lower.last().unwrap(), p) != -1
+        {
+            lower.pop();
+        }
+        lower.push(p);
+    }
+
+    let mut upper = Vec::new();
+    for &p in points.iter().rev() {
+        while upper.len() >= 2
+            && orientation(upper[upper.len() - 2], *upper.last().unwrap(), p) != -1
+        {
+            upper.pop();
+        }
+        upper.push(p);
+    }
+
+    upper.pop();
+    lower.pop();
+    lower.extend_from_slice(&upper);
+    lower
 }

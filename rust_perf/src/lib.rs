@@ -250,7 +250,7 @@ fn check_two_enemies_move(start: Point, enemies_position: Vec<Point>) -> PyResul
 #[pyfunction]
 fn collect_coins(
     mut start: Point,
-    mut eatten_coins: HashSet<Point>,
+    mut eaten_coins: HashSet<Point>,
 ) -> PyResult<(Vec<Point>, usize)> {
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
@@ -261,7 +261,7 @@ fn collect_coins(
         search_coins += 1;
         let coins: Vec<Point> = conf::COINS
             .par_iter()
-            .filter(|x| !eatten_coins.contains(&x))
+            .filter(|x| !eaten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
 
@@ -282,36 +282,79 @@ fn collect_coins(
         total_path.extend_from_slice(&sp[..sp.len()]);
 
         start = *sp.last().unwrap();
-        eatten_coins.insert((start.0, start.1));
+        eaten_coins.insert((start.0, start.1));
         agent_coins_score += 2;
     }
 
     Ok((total_path, agent_coins_score))
 }
 
-// BASELINE with some simple strategies
+// BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn collect_coins_using_powerup(
+    step: i32,
+    agent_id: i32,
     mut start: Point,
-    mut eatten_coins: HashSet<Point>,
+    mut eaten_coins: HashSet<Point>,
     enemies_position: Vec<Point>,
     mut pass_wall: usize,
 ) -> PyResult<(Vec<Point>, usize)> {
     let origin = start.clone();
+    let quad_id: i32 = agent_id - 4;
+
+    let mut search_depth = 0;
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
-    let mut search_depth = 0;
     let mut no_coin_situation = false;
 
-    // check escape first
+    let coins_vec: Vec<Point> = conf::COINS.iter().map(|x| (x.0, x.1)).collect();
+    let hull_points = algo::graham_hull(coins_vec);
+    println!("hull points: {:?}", hull_points);
+
+    // check escape strategy
     let escape_path = deal_with_enemy_nearby(start, enemies_position.clone());
     if !escape_path.is_empty() {
-        // println!("{}, {}-EARLY escape", start.0, start.1);
         return Ok((escape_path, 0));
     }
 
+    // safe and scatter phrase
+    if step < 30 {
+        let can_collect_path = conf::COINS
+            .par_iter()
+            .chain(conf::POWERUPS.par_iter())
+            .filter(|(x, y)| {
+                let mut flag = false;
+                match quad_id {
+                    0 => flag = x < &12 && y < &12,
+                    1 => flag = x < &12 && y >= &12,
+                    2 => flag = x >= &12 && y >= &12,
+                    3 => flag = x >= &12 && y < &12,
+                    _ => (),
+                };
+                flag
+            })
+            .filter(|x| !eaten_coins.contains(&x))
+            // .filter(|&x| distance(start, x.clone()) < 5)
+            .filter_map(|&coin| algo::a_star_search(start, coin))
+            .collect::<Vec<Vec<Point>>>();
+
+        if !can_collect_path.is_empty() {
+            let sp = can_collect_path
+                .iter()
+                .min_by_key(|path| path.len())
+                .unwrap();
+            println!(
+                "agent{}: ({},{}) can collect path: {:?}",
+                agent_id, start.0, start.1, sp
+            );
+            return Ok((sp.clone(), 0));
+        }
+    }
+
+    // find the potential move with greatest coin score
+
     loop {
-        // Pre-calculate ememy's next position
+        // Pre-calculate ememys' next position (assume chasing if in their vision)
         let next_enemies = enemies_position
             .iter()
             .map(|&enemy| algo::move_enemy(enemy.clone(), start))
@@ -321,11 +364,11 @@ fn collect_coins_using_powerup(
         let coins: Vec<Point> = conf::COINS
             .par_iter()
             .chain(conf::POWERUPS.par_iter())
-            .filter(|x| !eatten_coins.contains(&x))
+            .filter(|x| !eaten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
 
-        if coins.is_empty() || search_depth > 5 {
+        if coins.is_empty() || search_depth > 10 {
             break;
         }
         let mut to_avoid_enemies = vec![];
@@ -346,17 +389,17 @@ fn collect_coins_using_powerup(
 
         if paths.is_empty() {
             println!("NO COINS CATCHED");
-            paths = conf::DEFENDER_BASE
+            paths = conf::PORTALS
                 .par_iter()
-                .filter_map(|&coin| {
-                    algo::a_star_search_power(start, coin, to_avoid_enemies.clone(), pass_wall)
+                .filter_map(|&portal| {
+                    algo::a_star_search_power(start, portal, to_avoid_enemies.clone(), pass_wall)
                 })
                 .collect();
             no_coin_situation = true;
         }
 
         if no_coin_situation && paths.is_empty() {
-            println!("NEED STAY");
+            println!("No strategy for now: JUST STAY");
             total_path.push(origin);
             break;
         }
@@ -377,7 +420,7 @@ fn collect_coins_using_powerup(
         }
 
         start = *sp.last().unwrap();
-        eatten_coins.insert((start.0, start.1));
+        eaten_coins.insert((start.0, start.1));
         agent_coins_score += 2;
         pass_wall -= sp.len();
     }

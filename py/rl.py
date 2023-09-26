@@ -110,7 +110,7 @@ for i in range(4, 8):
 
 
 steps_done = 0
-ACTION = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
+ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
 
 def select_action(a_id, state):
@@ -129,7 +129,7 @@ def select_action(a_id, state):
             return agents[a_id]["policy_net"](state).max(1)[1].view(1, 1)
     else:
         return torch.tensor(
-            [[random.choice([i for i in range(len(ACTION))])]],
+            [[random.choice([i for i in range(len(ACTIONS))])]],
             device=device,
             dtype=torch.long,
         )
@@ -235,7 +235,7 @@ for i_episode in range(num_episodes):
             # Tensor
             action = select_action(a_id, one_state)
             actions_tensor[a_id] = action
-            actions[a_id] = ACTION[int(action)]
+            actions[a_id] = ACTIONS[int(action)]
 
         observation, reward, terminated, truncated, _ = env.step(actions)
         reward = torch.tensor([reward], device=device)

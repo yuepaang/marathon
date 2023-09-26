@@ -2,7 +2,7 @@
  * File              : lib.rs
  * Author            : Yue Peng <yuepaang@gmail.com>
  * Date              : 14.09.2023
- * Last Modified Date: 14.09.2023
+ * Last Modified Date: 26.09.2023
  * Last Modified By  : Yue Peng <yuepaang@gmail.com>
  */
 use std::{
@@ -10,11 +10,12 @@ use std::{
     collections::{BinaryHeap, HashSet},
 };
 
+use algo::bfs;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
 
-use crate::algo::{deal_with_enemy_nearby, dfs};
+use crate::algo::deal_with_enemy_nearby;
 
 mod algo;
 mod conf;
@@ -246,7 +247,7 @@ fn check_two_enemies_move(start: Point, enemies_position: Vec<Point>) -> PyResul
     }
 }
 
-// BASELINE
+// BASELINE 170 round end the game
 #[pyfunction]
 fn collect_coins(
     mut start: Point,
@@ -296,11 +297,12 @@ fn collect_coins_using_powerup(
     agent_id: i32,
     mut start: Point,
     mut eaten_coins: HashSet<Point>,
+    allies_position: Vec<Point>,
     enemies_position: Vec<Point>,
     mut pass_wall: usize,
 ) -> PyResult<(Vec<Point>, usize)> {
     let origin = start.clone();
-    let quad_id: i32 = agent_id - 4;
+    // let quad_id: i32 = agent_id - 4;
 
     let mut search_depth = 0;
     let mut agent_coins_score = 0;
@@ -318,47 +320,48 @@ fn collect_coins_using_powerup(
     }
 
     // safe and scatter phrase
-    if step < 30 {
-        let can_collect_path = conf::COINS
-            .par_iter()
-            .chain(conf::POWERUPS.par_iter())
-            .filter(|(x, y)| {
-                let mut flag = false;
-                match quad_id {
-                    0 => flag = x < &12 && y < &12,
-                    1 => flag = x < &12 && y >= &12,
-                    2 => flag = x >= &12 && y >= &12,
-                    3 => flag = x >= &12 && y < &12,
-                    _ => (),
-                };
-                flag
-            })
-            .filter(|x| !eaten_coins.contains(&x))
-            // .filter(|&x| distance(start, x.clone()) < 5)
-            .filter_map(|&coin| algo::a_star_search(start, coin))
-            .collect::<Vec<Vec<Point>>>();
+    // if step < 30 {
+    //     let can_collect_path = conf::COINS
+    //         .par_iter()
+    //         .chain(conf::POWERUPS.par_iter())
+    //         .filter(|(x, y)| {
+    //             let mut flag = false;
+    //             match quad_id {
+    //                 0 => flag = x < &12 && y < &12,
+    //                 1 => flag = x < &12 && y >= &12,
+    //                 2 => flag = x >= &12 && y >= &12,
+    //                 3 => flag = x >= &12 && y < &12,
+    //                 _ => (),
+    //             };
+    //             flag
+    //         })
+    //         .filter(|x| !eaten_coins.contains(&x))
+    //         // .filter(|&x| distance(start, x.clone()) < 5)
+    //         .filter_map(|&coin| algo::a_star_search(start, coin))
+    //         .collect::<Vec<Vec<Point>>>();
 
-        if !can_collect_path.is_empty() {
-            let sp = can_collect_path
-                .iter()
-                .min_by_key(|path| path.len())
-                .unwrap();
-            println!(
-                "agent{}: ({},{}) can collect path: {:?}",
-                agent_id, start.0, start.1, sp
-            );
-            return Ok((sp.clone(), 0));
-        }
-    }
+    //     if !can_collect_path.is_empty() {
+    //         let sp = can_collect_path
+    //             .iter()
+    //             .min_by_key(|path| path.len())
+    //             .unwrap();
+
+    //         // println!(
+    //         //     "agent{}: ({},{}) can collect path: {:?}",
+    //         //     agent_id, start.0, start.1, sp
+    //         // );
+    //         return Ok((sp.clone(), 0));
+    //     }
+    // }
 
     // find the potential move with greatest coin score
 
     loop {
         // Pre-calculate ememys' next position (assume chasing if in their vision)
-        let next_enemies = enemies_position
-            .iter()
-            .map(|&enemy| algo::move_enemy(enemy.clone(), start))
-            .collect::<Vec<Point>>();
+        // let next_enemies = enemies_position
+        //     .iter()
+        //     .map(|&enemy| algo::move_enemy(enemy.clone(), start))
+        //     .collect::<Vec<Point>>();
 
         search_depth += 1;
         let coins: Vec<Point> = conf::COINS
@@ -371,19 +374,11 @@ fn collect_coins_using_powerup(
         if coins.is_empty() || search_depth > 10 {
             break;
         }
-        let mut to_avoid_enemies = vec![];
-        if search_depth == 1 {
-            to_avoid_enemies = enemies_position
-                .iter()
-                .chain(next_enemies.iter())
-                .cloned()
-                .collect();
-        }
 
         let mut paths: Vec<Vec<Point>> = coins
             .par_iter()
             .filter_map(|&coin| {
-                algo::a_star_search_power(start, coin, to_avoid_enemies.clone(), pass_wall)
+                algo::a_star_search_power(start, coin, allies_position.clone(), pass_wall)
             })
             .collect();
 
@@ -392,7 +387,7 @@ fn collect_coins_using_powerup(
             paths = conf::PORTALS
                 .par_iter()
                 .filter_map(|&portal| {
-                    algo::a_star_search_power(start, portal, to_avoid_enemies.clone(), pass_wall)
+                    algo::a_star_search_power(start, portal, allies_position.clone(), pass_wall)
                 })
                 .collect();
             no_coin_situation = true;
@@ -432,27 +427,9 @@ fn collect_coins_using_powerup(
     Ok((total_path, agent_coins_score))
 }
 
-#[derive(Clone, Eq, PartialEq)]
-struct ScoreNode {
-    point: Point,
-    score: usize,
-}
-
-impl Ord for ScoreNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.score.cmp(&self.score)
-    }
-}
-
-impl PartialOrd for ScoreNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 // PERF: all agents parallel
 #[pyfunction]
-fn explore_n_round_possibility(
+fn explore_n_round_scores(
     start: Point,
     real_eaten_coins: HashSet<Point>,
     enemies_position: Vec<Point>,
@@ -467,9 +444,28 @@ fn explore_n_round_possibility(
 
     let mut eaten_coins = real_eaten_coins.clone();
 
-    dfs(
+    let visited = HashSet::new();
+
+    // dfs(
+    //     start,
+    //     0,
+    //     pass_wall,
+    //     start,
+    //     vec![],
+    //     &mut eaten_coins,
+    //     &enemies_position,
+    //     &banned_points,
+    //     &mut action_scores,
+    //     -1,
+    // );
+    let search_depth = match enemies_position.len() {
+        0 => 9,
+        _ => 3,
+    };
+
+    bfs(
         start,
-        0,
+        search_depth,
         pass_wall,
         start,
         vec![],
@@ -477,7 +473,7 @@ fn explore_n_round_possibility(
         &enemies_position,
         &banned_points,
         &mut action_scores,
-        -1,
+        visited,
     );
 
     Ok(action_scores)
@@ -490,6 +486,6 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(collect_coins, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_powerup, m)?)?;
     m.add_function(wrap_pyfunction!(check_two_enemies_move, m)?)?;
-    m.add_function(wrap_pyfunction!(explore_n_round_possibility, m)?)?;
+    m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
     Ok(())
 }

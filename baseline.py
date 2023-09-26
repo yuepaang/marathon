@@ -56,31 +56,71 @@ def use_defender(agent, eaten_set, step) -> str:
     # enemies in out vision
     other_agent_list = agent["other_agents"]
     attacker_location = []
+    allies_location = []
     for other_agent in other_agent_list:
         if other_agent["role"] == "ATTACKER":
             attacker_location.append((other_agent["x"], other_agent["y"]))
+        else:
+            if step > 3:
+                allies_location.append((other_agent["x"], other_agent["y"]))
 
-    s = time.time()
-    scores = rust_perf.explore_n_round_scores(
-        current_pos, eaten_set, attacker_location, passwall
+    # strategy one
+    if len(attacker_location) == 2:
+        next_move = rust_perf.check_two_enemies_move(current_pos, attacker_location)
+        if next_move != "NO":
+            # raise Exception("early")
+            return next_move
+
+    # path, _ = rust_perf.collect_coins(current_pos, eatten_set)
+    path, _ = rust_perf.collect_coins_using_powerup(
+        step,
+        agent_id,
+        current_pos,
+        eaten_set,
+        allies_location,
+        attacker_location,
+        passwall,
     )
-    idx = scores.index(max(scores))
-    if agent_id in [4]:
+    if len(path) == 0:
         print(
             agent_id,
             agent["self_agent"]["score"],
-            f"passwall: {passwall}",
             current_pos,
-            ACTIONS[idx],
+            passwall,
+            agent["self_agent"]["powerups"],
             attacker_location,
-            scores,
+            len(eaten_set),
             eaten_set,
-            # "path: ",
-            # ["COIN" if p in global_coin_set else p for p in path],
-            # potential_score,
         )
-        print(time.time() - s)
-    return ACTIONS[idx]
+        print(agent["other_agents"])
+        raise Exception("no path")
+        return random.choice(ACTIONS)
+    else:
+        next_move = get_direction(current_pos, path[0])
+        # print(
+        #     agent_id,
+        #     agent["self_agent"]["score"],
+        #     current_pos,
+        #     next_move,
+        #     attacker_location,
+        #     allies_location,
+        #     # "path: ",
+        #     # ["COIN" if p in global_coin_set else p for p in path],
+        #     # potential_score,
+        # )
+        # print(agent["self_agent"]["id"], path, current_pos, next_move, score)
+
+        # if next_move == "ERROR":
+        #     print(
+        #         agent_id,
+        #         current_pos,
+        #         "path: ",
+        #         ["COIN" if p in global_coin_set else p for p in path],
+        #         potential_score,
+        #     )
+        #     next_move = "STAY"
+        return next_move
+    # # return rust_perf.get_direction(current_pos, move_to, block_list)
 
 
 def get_direction(curr, next):
@@ -147,7 +187,7 @@ for seed in seeds:
             attacker_actions=attacker_actions, defender_actions=defender_actions
         )
         step += 1
-        print(f"{step}/1152")
+        # print(f"{step}/1152")
 
     # get game result
     print(f"seed: {seed} --- game result:\r\n", game.get_result())

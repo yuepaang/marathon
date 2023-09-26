@@ -2,12 +2,13 @@
  * File              : algo.rs
  * Author            : Yue Peng <yuepaang@gmail.com>
  * Date              : 21.09.2023
- * Last Modified Date: 21.09.2023
+ * Last Modified Date: 26.09.2023
  * Last Modified By  : Yue Peng <yuepaang@gmail.com>
  */
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
 use rayon::prelude::*;
 
@@ -189,54 +190,98 @@ pub fn check_out_of_bound(point: Point) -> bool {
 
 pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
     let mut escape_path = Vec::new();
-    let need_escape = enemies
-        .iter()
-        .map(|&e| distance(start, e))
-        .filter(|&d| d < 3 as usize)
-        .collect::<Vec<usize>>();
+    if enemies.is_empty() {
+        return escape_path;
+    }
+    for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+        let mut next = (start.0 + i, start.1 + j);
+        if check_out_of_bound(next) {
+            continue;
+        }
 
-    if !need_escape.is_empty() {
-        for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
-            let mut next = (start.0 + i, start.1 + j);
-            if check_out_of_bound(next) {
-                continue;
-            }
+        let true_next = next.clone();
+        // PORTAL MOVE
+        let index = conf::PORTALS
+            .iter()
+            .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+            .unwrap_or(99);
+        if index != 99 {
+            next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+        }
 
-            let true_next = next.clone();
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            }
-
-            let mut flag = false;
-            conf::WALLS.iter().for_each(|&w| {
-                if w == next {
+        let mut flag = false;
+        conf::WALLS.iter().for_each(|&w| {
+            if w == next {
+                if !flag {
                     flag = true;
                 }
-            });
-            if flag {
-                continue;
             }
+        });
+        if flag {
+            continue;
+        }
 
-            flag = false;
-            enemies.iter().for_each(|&e| {
-                if distance(next, e) < distance(start, e) {
+        flag = false;
+        enemies.iter().for_each(|&e| {
+            if distance(next, e) > distance(start, e) {
+                if !flag {
                     flag = true;
                 }
-            });
-            if flag {
-                continue;
             }
+        });
+        if flag {
+            escape_path.push(true_next);
+        }
+        if escape_path.len() > 1 {
             println!(
                 "start{:?}, enemies: {:?}, next: {:?}",
                 start, enemies, true_next
             );
-            escape_path.push(true_next);
         }
+    }
+    // if we locate in corner
+    if escape_path.is_empty() {
+        println!("EMPTY ESCAPE!!!start{:?}, enemies: {:?}", start, enemies);
+        let walls_vec: Vec<Point> = conf::WALLS
+            .iter()
+            .map(|x| (x.0, x.1))
+            .filter(|&p| distance(p, start) < 3)
+            .collect();
+        let hull_points = graham_hull(walls_vec);
+        let mut target_hull_point = start.clone();
+        let mut target_dist = 0;
+        for &hp in hull_points.iter() {
+            let mut dist = 0;
+
+            let mut use_nearby = false;
+            let mut new_hp = (hp.0, hp.1);
+            if !conf::WALLS.contains(&hp) {
+                for &e in enemies.iter() {
+                    dist += distance(hp, e);
+                }
+            } else {
+                for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+                    new_hp = (hp.0 + i, hp.1 + j);
+                    if !conf::WALLS.contains(&new_hp) {
+                        for &e in enemies.iter() {
+                            dist += distance(new_hp, e);
+                        }
+                        use_nearby = true;
+                        break;
+                    }
+                }
+            }
+            if dist > target_dist {
+                target_dist = dist;
+                if !use_nearby {
+                    target_hull_point = hp.clone();
+                } else {
+                    target_hull_point = new_hp.clone();
+                }
+            }
+        }
+        let hull_path = a_star_search(start, target_hull_point).unwrap();
+        escape_path.extend_from_slice(&hull_path);
     }
 
     escape_path
@@ -320,12 +365,15 @@ pub fn dfs(
             continue;
         }
         // PORTAL MOVE
-        let index = conf::PORTALS
+        let portail_index = conf::PORTALS
             .par_iter()
             .position_first(|portal| next.0 == portal.0 && next.1 == portal.1)
             .unwrap_or(99);
-        if index != 99 {
-            next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+        if portail_index != 99 {
+            next = (
+                conf::PORTALS_DEST[portail_index].0,
+                conf::PORTALS_DEST[portail_index].1,
+            );
         }
 
         if pass_wall <= 0 {
@@ -337,6 +385,7 @@ pub fn dfs(
         // TODO: score calculation
         if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
             action_score[first_move_flag as usize] += f32::powf(0.95, search_depth as f32) * 2.0;
+            println!("next: {:?}, path: {:?}", next, path);
             eaten_coins.insert(next);
         }
         if next_enemies.contains(&next) {
@@ -357,7 +406,127 @@ pub fn dfs(
             action_score,
             first_move_flag,
         );
+        if search_depth == 0 {
+            eaten_coins.remove(&next);
+        }
+    }
+}
 
-        eaten_coins.remove(&next);
+pub fn bfs(
+    root: Point,
+    search_depth: usize,
+    pass_wall: usize,
+    current_point: Point,
+    path: Vec<Point>,
+    eaten_coins: &mut HashSet<Point>,
+    enemies: &Vec<Point>,
+    banned_points: &HashSet<Point>,
+    action_score: &mut Vec<f32>,
+    mut visited: HashSet<Point>,
+) {
+    let mut queue: VecDeque<_> = VecDeque::new();
+    queue.push_back((root, 0, pass_wall, current_point, path.clone(), 0));
+
+    while let Some((
+        current_root,
+        current_depth,
+        current_pass_wall,
+        current_point,
+        current_path,
+        mut current_first_move_flag,
+    )) = queue.pop_front()
+    {
+        if current_depth > search_depth {
+            continue;
+        }
+
+        let next_enemies = enemies
+            .iter()
+            .map(|&enemy| move_enemy(enemy.clone(), current_point))
+            .collect::<Vec<Point>>();
+
+        for &(action_idx, i, j) in &[(0, 0, 0), (1, -1, 0), (2, 1, 0), (3, 0, 1), (4, 0, -1)] {
+            if current_depth == 0 {
+                current_first_move_flag = action_idx;
+            }
+
+            if enemies.is_empty() && action_idx == 0 {
+                continue;
+            }
+
+            let mut next = (current_point.0 + i, current_point.1 + j);
+            if check_out_of_bound(next) {
+                continue;
+            }
+
+            // if let Some(set) = visited.get(&current_first_move_flag) {
+            //     if set.contains(&next) {
+            //         continue;
+            //     }
+            // } else {
+            //     println!(
+            //         "The key {} is not present in the HashMap",
+            //         current_first_move_flag
+            //     );
+            // }
+
+            // PORTAL MOVE
+            let portail_index = conf::PORTALS
+                .par_iter()
+                .position_first(|portal| next.0 == portal.0 && next.1 == portal.1)
+                .unwrap_or(99);
+            if portail_index != 99 {
+                next = (
+                    conf::PORTALS_DEST[portail_index].0,
+                    conf::PORTALS_DEST[portail_index].1,
+                );
+            }
+            if current_path.contains(&next) {
+                continue;
+            }
+
+            if enemies.is_empty() && visited.contains(&next) {
+                continue;
+            }
+
+            // visited
+            //     .entry(current_first_move_flag)
+            //     .or_insert_with(HashSet::new)
+            //     .insert(next);
+            visited.insert(next);
+
+            if pass_wall <= 0 && banned_points.contains(&next) {
+                continue;
+            }
+
+            // TODO: score calculation
+            if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
+                if search_depth == 0 {
+                    action_score[current_first_move_flag as usize] += 999.0
+                } else {
+                    action_score[current_first_move_flag as usize] +=
+                        f32::powf(0.95, search_depth as f32) * (2.0 + (10.0 - search_depth as f32));
+                    // println!(
+                    //     "root: {:?} flag: {:?} next: {:?}, path: {:?}",
+                    //     current_root, current_first_move_flag, next, current_path
+                    // );
+                }
+                eaten_coins.insert(next);
+            }
+            if next_enemies.contains(&next) {
+                action_score[current_first_move_flag as usize] /= 2.0;
+            }
+
+            let mut new_path = current_path.clone();
+            new_path.push(next);
+            queue.push_back((
+                current_root,
+                current_depth + 1,
+                current_pass_wall - 1,
+                next,
+                new_path,
+                current_first_move_flag,
+            ));
+        }
     }
 }

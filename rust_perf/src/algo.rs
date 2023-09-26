@@ -232,18 +232,18 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
         if flag {
             escape_path.push(true_next);
         }
-        if escape_path.len() > 1 {
-            println!(
-                "start{:?}, enemies: {:?}, next: {:?}",
-                start, enemies, true_next
-            );
-        }
+        // if escape_path.len() > 1 {
+        //     println!(
+        //         "start{:?}, enemies: {:?}, next: {:?}",
+        //         start, enemies, true_next
+        //     );
+        // }
     }
     // if we locate in corner
     if escape_path.is_empty() {
-        println!("EMPTY ESCAPE!!!start{:?}, enemies: {:?}", start, enemies);
         let walls_vec: Vec<Point> = conf::WALLS
             .iter()
+            .chain(enemies.iter())
             .map(|x| (x.0, x.1))
             .filter(|&p| distance(p, start) < 3)
             .collect();
@@ -281,6 +281,10 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
             }
         }
         let hull_path = a_star_search(start, target_hull_point).unwrap();
+        println!(
+            "EMPTY ESCAPE!!!start{:?}, enemies: {:?}, hull_path: {:?}",
+            start, enemies, hull_path
+        );
         escape_path.extend_from_slice(&hull_path);
     }
 

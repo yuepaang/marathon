@@ -120,10 +120,10 @@ game = Game(map)
 win_count = 0
 attacker_score = 0
 defender_score = 0
-seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [7437]
+# seeds = [random.randint(0, 1000000) for _ in range(5)]
+seeds = [7437]
 for seed in seeds:
-    game.reset_game(attacker="attacker", defender="defender", seed=seed)
+    game.reset(attacker="attacker", defender="defender", seed=seed)
 
     eatten_set = set()
     step = 0

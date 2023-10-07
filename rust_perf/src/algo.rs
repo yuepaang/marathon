@@ -25,6 +25,7 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
     to_visit.push(Node {
         cost: 0,
         point: start,
+        passwall: 0,
     });
 
     let mut visited = HashSet::new();
@@ -33,7 +34,12 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
 
     let mut came_from: HashMap<Point, (Direction, Point)> = HashMap::new();
 
-    while let Some(Node { cost: _, point }) = to_visit.pop() {
+    while let Some(Node {
+        cost: _,
+        point,
+        passwall: _,
+    }) = to_visit.pop()
+    {
         if point == end {
             let mut path: Vec<Point> = Vec::new();
             let mut current = end;
@@ -80,6 +86,7 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    passwall: 0,
                 });
             }
         }
@@ -101,16 +108,18 @@ pub fn move_enemy(enemy_position: Point, target_position: Point) -> Point {
 pub fn a_star_search_power(
     start: Point,
     end: Point,
-    enemies: Vec<Point>,
-    mut passwall: usize,
+    allies: Vec<Point>,
+    passwall: usize,
 ) -> Option<Vec<Point>> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    // valueless position
     banned_points.insert((23, 0));
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
         cost: 0,
         point: start,
+        passwall,
     });
 
     let mut visited = HashSet::new();
@@ -119,7 +128,12 @@ pub fn a_star_search_power(
 
     let mut came_from: HashMap<Point, (Direction, Point)> = HashMap::new();
 
-    while let Some(Node { cost: _, point }) = to_visit.pop() {
+    while let Some(Node {
+        cost: _,
+        point,
+        passwall: pw,
+    }) = to_visit.pop()
+    {
         if point == end {
             let mut path: Vec<Point> = Vec::new();
             let mut current = end;
@@ -148,10 +162,10 @@ pub fn a_star_search_power(
             if visited.contains(&next) {
                 continue;
             }
-            if enemies.contains(&next) {
+            if allies.contains(&next) {
                 continue;
             }
-            if passwall <= 0 {
+            if pw <= 0 {
                 if banned_points.contains(&next) {
                     continue;
                 }
@@ -174,12 +188,12 @@ pub fn a_star_search_power(
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    passwall: pw - 1,
                 });
             }
         }
 
         visited.insert(point);
-        passwall -= 1;
     }
     None
 }
@@ -193,7 +207,15 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
     if enemies.is_empty() {
         return escape_path;
     }
+    let enemies_dist: Vec<usize> = enemies.iter().map(|&e| distance(start, e)).collect();
+    let min_dist = enemies_dist.iter().min().unwrap();
+
     for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+        if min_dist == &(1 as usize) {
+            if i == 0 && j == 0 {
+                continue;
+            }
+        }
         let mut next = (start.0 + i, start.1 + j);
         if check_out_of_bound(next) {
             continue;
@@ -217,6 +239,7 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
                 }
             }
         });
+        // skip direction into wall
         if flag {
             continue;
         }
@@ -229,25 +252,23 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
                 }
             }
         });
+        // direction away from enemy
         if flag {
             escape_path.push(true_next);
         }
-        // if escape_path.len() > 1 {
-        //     println!(
-        //         "start{:?}, enemies: {:?}, next: {:?}",
-        //         start, enemies, true_next
-        //     );
-        // }
     }
-    // if we locate in corner
+
+    // if no simple escape path
     if escape_path.is_empty() {
         let walls_vec: Vec<Point> = conf::WALLS
             .iter()
             .chain(enemies.iter())
             .map(|x| (x.0, x.1))
-            .filter(|&p| distance(p, start) < 3)
+            .filter(|&p| distance(start, p) <= 5)
             .collect();
+
         let hull_points = graham_hull(walls_vec);
+
         let mut target_hull_point = start.clone();
         let mut target_dist = 0;
         for &hp in hull_points.iter() {
@@ -260,7 +281,7 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
                     dist += distance(hp, e);
                 }
             } else {
-                for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+                for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
                     new_hp = (hp.0 + i, hp.1 + j);
                     if !conf::WALLS.contains(&new_hp) {
                         for &e in enemies.iter() {
@@ -462,17 +483,6 @@ pub fn bfs(
             if check_out_of_bound(next) {
                 continue;
             }
-
-            // if let Some(set) = visited.get(&current_first_move_flag) {
-            //     if set.contains(&next) {
-            //         continue;
-            //     }
-            // } else {
-            //     println!(
-            //         "The key {} is not present in the HashMap",
-            //         current_first_move_flag
-            //     );
-            // }
 
             // PORTAL MOVE
             let portail_index = conf::PORTALS

@@ -30,9 +30,50 @@ def get_distance(pos1, pos2):
     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
-def use_defender(agent, eaten_set, step) -> str:
-    # safe phrase
+def use_attacker(agent, step, powerup_clock) -> str:
+    # record powerups
+    if "passwall" in agent["self_agent"]["powerups"]:
+        passwall = agent["self_agent"]["powerups"]["passwall"]
+    else:
+        passwall = 0
+    current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
+    # record locations have been arrived
+    if current_pos in global_powerup_set:
+        powerup_clock[current_pos] = 1
+
+    cancel_key = []
+    for powerup, clock in powerup_clock.items():
+        if clock == 12:
+            cancel_key.append(powerup)
+    for k in cancel_key:
+        del powerup_clock[k]
+
+    # attack powerup
+    # for owned_powerup in agent["powerups"]:
+    #     if owned_powerup.get("powerup") == 4:
+    #         eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
+
+    # enemies in out vision
+    other_agent_list = agent["other_agents"]
+    attacker_location = []
+    for other_agent in other_agent_list:
+        if other_agent["role"] == "DEFENDER":
+            attacker_location.append((other_agent["x"], other_agent["y"]))
+
+    path = rust_perf.catch_enemies_using_powerup(
+        current_pos,
+        passwall,
+        step,
+    )
+    next_move = get_direction(current_pos, path[0])
+    for powerup, _ in powerup_clock.items():
+        powerup_clock[powerup] += 1
+    return next_move
+
+
+def use_defender(agent, eaten_set, step, powerup_clock) -> str:
+    # safe phrase
     agent_id = agent["self_agent"]["id"]
 
     # record powerups
@@ -47,11 +88,20 @@ def use_defender(agent, eaten_set, step) -> str:
         eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
         eaten_set.add(current_pos)
+        powerup_clock[current_pos] = 1
+
+    cancel_key = []
+    for powerup, clock in powerup_clock.items():
+        if clock == 12:
+            eaten_set.remove(powerup)
+            cancel_key.append(powerup)
+    for k in cancel_key:
+        del powerup_clock[k]
 
     # attack powerup
-    for owned_powerup in agent["powerups"]:
-        if owned_powerup.get("powerup") == 4:
-            eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
+    # for owned_powerup in agent["powerups"]:
+    #     if owned_powerup.get("powerup") == 4:
+    #         eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
 
     # enemies in out vision
     other_agent_list = agent["other_agents"]
@@ -73,8 +123,6 @@ def use_defender(agent, eaten_set, step) -> str:
 
     # path, _ = rust_perf.collect_coins(current_pos, eatten_set)
     path, _ = rust_perf.collect_coins_using_powerup(
-        step,
-        agent_id,
         current_pos,
         eaten_set,
         allies_location,
@@ -119,6 +167,8 @@ def use_defender(agent, eaten_set, step) -> str:
         #         potential_score,
         #     )
         #     next_move = "STAY"
+        for powerup, _ in powerup_clock.items():
+            powerup_clock[powerup] += 1
         return next_move
     # # return rust_perf.get_direction(current_pos, move_to, block_list)
 
@@ -167,6 +217,7 @@ for seed in seeds:
 
     eatten_set = set()
     step = 0
+    powerup_clock = {}
     start_game_time = time.time()
     # game loop
     while not game.is_over():
@@ -175,11 +226,15 @@ for seed in seeds:
         defender_state = game.get_agent_states_by_player("defender")
 
         # apply actions for agents:
+        # attacker_actions = {
+        #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
+        # }
         attacker_actions = {
-            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
+            _id: use_attacker(attacker_state[_id], step, {})
+            for _id in attacker_state.keys()
         }
         defender_actions = {
-            _id: use_defender(defender_state[_id], eatten_set, step)
+            _id: use_defender(defender_state[_id], eatten_set, step, powerup_clock)
             for _id in defender_state.keys()
         }
 

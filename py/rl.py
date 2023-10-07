@@ -85,7 +85,7 @@ LR = 1e-4
 # Get number of actions from action space
 n_actions = 5
 # Get the number of state observations
-state, info = env.reset()
+state, info = env.reset_game()
 n_observations = len(state[info[0]])
 
 # Initialize DQNs and optimizers
@@ -223,7 +223,7 @@ else:
 win_count = 0
 for i_episode in range(num_episodes):
     # Initialize the environment and get it's state
-    state, info = env.reset()
+    state, info = env.reset_game()
     for t in count():
         actions = {}
         actions_tensor = {}

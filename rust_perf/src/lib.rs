@@ -19,6 +19,7 @@ use crate::algo::deal_with_enemy_nearby;
 
 mod algo;
 mod conf;
+mod game;
 
 pub type Point = (i32, i32);
 
@@ -30,6 +31,7 @@ pub fn distance(p1: Point, p2: Point) -> usize {
 pub struct Node {
     cost: usize,
     point: Point,
+    passwall: usize,
 }
 
 impl Ord for Node {
@@ -84,6 +86,7 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
     to_visit.push(Node {
         cost: 0,
         point: start,
+        passwall: 0,
     });
 
     let mut visited = HashSet::new();
@@ -92,7 +95,12 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
 
     let mut came_from = HashMap::new();
 
-    while let Some(Node { cost: _, point }) = to_visit.pop() {
+    while let Some(Node {
+        cost: _,
+        point,
+        passwall: _,
+    }) = to_visit.pop()
+    {
         if point == end {
             let mut path: Vec<Direction> = Vec::new();
             let mut current = end;
@@ -134,6 +142,7 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    passwall: 0,
                 });
             }
         }
@@ -152,6 +161,7 @@ fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(usiz
     to_visit.push(Node {
         cost: 0,
         point: start,
+        passwall: 0,
     });
 
     let mut visited = HashSet::new();
@@ -160,7 +170,12 @@ fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(usiz
 
     let mut came_from = HashMap::new();
 
-    while let Some(Node { cost, point }) = to_visit.pop() {
+    while let Some(Node {
+        cost,
+        point,
+        passwall: _,
+    }) = to_visit.pop()
+    {
         if point == end {
             let mut path: Vec<Direction> = Vec::new();
             let mut current = end;
@@ -203,6 +218,7 @@ fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(usiz
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    passwall: 0,
                 });
             }
         }
@@ -292,9 +308,60 @@ fn collect_coins(
 
 // BASELINE of defenders with some simple strategies
 #[pyfunction]
+fn catch_enemies_using_powerup(
+    mut start: Point,
+    mut pass_wall: usize,
+    step: usize,
+) -> PyResult<Vec<Point>> {
+    // let quad_id: i32 = agent_id - 4;
+
+    let origin = start.clone();
+    let mut search_depth = 0;
+    let mut total_path = Vec::new();
+    let mut visited: HashSet<Point> = HashSet::new();
+    let enemies_base: Vec<Point> = conf::DEFENDER_BASE.iter().map(|x| (x.0, x.1)).collect();
+
+    // find the potential move with greatest coin score
+    loop {
+        search_depth += 1;
+        let positive_targets: Vec<Point> = conf::COINS.par_iter().map(|x| (x.0, x.1)).collect();
+
+        if positive_targets.is_empty() || search_depth > 10 || total_path.len() > step + 1 {
+            break;
+        }
+
+        let paths: Vec<Vec<Point>> = positive_targets
+            .par_iter()
+            .filter(|&target| !visited.contains(target))
+            .filter_map(|&target| {
+                algo::a_star_search_power(enemies_base[0], target, vec![start], pass_wall)
+            })
+            .collect();
+
+        let empty_path = vec![];
+        let sp = paths
+            .iter()
+            .min_by_key(|path| path.len())
+            .unwrap_or(&empty_path);
+
+        total_path.extend_from_slice(&sp[..sp.len()]);
+
+        start = *sp.last().unwrap();
+        visited.insert((start.0, start.1));
+        pass_wall -= sp.len();
+    }
+
+    if total_path.len() == 0 {
+        println!("no total path generated.")
+    }
+    let find_path = algo::a_star_search_power(origin, total_path[step], vec![], pass_wall).unwrap();
+
+    Ok(find_path)
+}
+
+// BASELINE of defenders with some simple strategies
+#[pyfunction]
 fn collect_coins_using_powerup(
-    step: i32,
-    agent_id: i32,
     mut start: Point,
     mut eaten_coins: HashSet<Point>,
     allies_position: Vec<Point>,
@@ -309,53 +376,13 @@ fn collect_coins_using_powerup(
     let mut total_path = Vec::new();
     let mut no_coin_situation = false;
 
-    // let coins_vec: Vec<Point> = conf::COINS.iter().map(|x| (x.0, x.1)).collect();
-    // let hull_points = algo::graham_hull(coins_vec);
-    // println!("hull points: {:?}", hull_points);
-
     // check escape strategy
     let escape_path = deal_with_enemy_nearby(start, enemies_position.clone());
     if !escape_path.is_empty() {
         return Ok((escape_path, 0));
     }
 
-    // safe and scatter phrase
-    // if step < 30 {
-    //     let can_collect_path = conf::COINS
-    //         .par_iter()
-    //         .chain(conf::POWERUPS.par_iter())
-    //         .filter(|(x, y)| {
-    //             let mut flag = false;
-    //             match quad_id {
-    //                 0 => flag = x < &12 && y < &12,
-    //                 1 => flag = x < &12 && y >= &12,
-    //                 2 => flag = x >= &12 && y >= &12,
-    //                 3 => flag = x >= &12 && y < &12,
-    //                 _ => (),
-    //             };
-    //             flag
-    //         })
-    //         .filter(|x| !eaten_coins.contains(&x))
-    //         // .filter(|&x| distance(start, x.clone()) < 5)
-    //         .filter_map(|&coin| algo::a_star_search(start, coin))
-    //         .collect::<Vec<Vec<Point>>>();
-
-    //     if !can_collect_path.is_empty() {
-    //         let sp = can_collect_path
-    //             .iter()
-    //             .min_by_key(|path| path.len())
-    //             .unwrap();
-
-    //         // println!(
-    //         //     "agent{}: ({},{}) can collect path: {:?}",
-    //         //     agent_id, start.0, start.1, sp
-    //         // );
-    //         return Ok((sp.clone(), 0));
-    //     }
-    // }
-
     // find the potential move with greatest coin score
-
     loop {
         // Pre-calculate ememys' next position (assume chasing if in their vision)
         // let next_enemies = enemies_position
@@ -364,26 +391,27 @@ fn collect_coins_using_powerup(
         //     .collect::<Vec<Point>>();
 
         search_depth += 1;
-        let coins: Vec<Point> = conf::COINS
+        let positive_targets: Vec<Point> = conf::COINS
             .par_iter()
             .chain(conf::POWERUPS.par_iter())
             .filter(|x| !eaten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
 
-        if coins.is_empty() || search_depth > 10 {
+        if positive_targets.is_empty() || search_depth > 10 {
             break;
         }
 
-        let mut paths: Vec<Vec<Point>> = coins
+        let mut paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
-            .filter_map(|&coin| {
-                algo::a_star_search_power(start, coin, allies_position.clone(), pass_wall)
+            .filter_map(|&target| {
+                algo::a_star_search_power(start, target, allies_position.clone(), pass_wall)
             })
             .collect();
 
+        // TODO: away from potential enemies
         if paths.is_empty() {
-            println!("NO COINS CATCHED");
+            println!("NO TARGET!");
             paths = conf::PORTALS
                 .par_iter()
                 .filter_map(|&portal| {
@@ -474,6 +502,7 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_direction_path, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_powerup, m)?)?;
+    m.add_function(wrap_pyfunction!(catch_enemies_using_powerup, m)?)?;
     m.add_function(wrap_pyfunction!(check_two_enemies_move, m)?)?;
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
     Ok(())

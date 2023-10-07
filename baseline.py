@@ -1,3 +1,4 @@
+from collections import defaultdict
 import json
 import time
 from game import Game
@@ -30,11 +31,7 @@ def get_distance(pos1, pos2):
     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
-def use_defender(agent, eaten_set, step) -> str:
-    # safe phrase
-
-    agent_id = agent["self_agent"]["id"]
-
+def use_attacker(agent, step, powerup_clock) -> str:
     # record powerups
     if "passwall" in agent["self_agent"]["powerups"]:
         passwall = agent["self_agent"]["powerups"]["passwall"]
@@ -43,38 +40,101 @@ def use_defender(agent, eaten_set, step) -> str:
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
     # record locations have been arrived
-    if current_pos in global_coin_set:
-        eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
-        eaten_set.add(current_pos)
+        powerup_clock[current_pos] = 1
+
+    cancel_key = []
+    for powerup, clock in powerup_clock.items():
+        if clock == 12:
+            cancel_key.append(powerup)
+    for k in cancel_key:
+        del powerup_clock[k]
 
     # attack powerup
-    for owned_powerup in agent["powerups"]:
-        if owned_powerup.get("powerup") == 4:
-            eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
+    # for owned_powerup in agent["powerups"]:
+    #     if owned_powerup.get("powerup") == 4:
+    #         eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
 
     # enemies in out vision
     other_agent_list = agent["other_agents"]
     attacker_location = []
+    for other_agent in other_agent_list:
+        if other_agent["role"] == "DEFENDER":
+            attacker_location.append((other_agent["x"], other_agent["y"]))
+
+    path = rust_perf.catch_enemies_using_powerup(
+        current_pos,
+        passwall,
+        step,
+    )
+    next_move = get_direction(current_pos, path[0])
+    for powerup, _ in powerup_clock.items():
+        powerup_clock[powerup] += 1
+    return next_move
+
+
+def use_defender(agent, eaten_set, step, powerup_clock, attacker_location) -> str:
+    # safe phrase
+    agent_id = agent["self_agent"]["id"]
+
+    for p in agent["powerups"]:
+        if p["powerup"] == "4" or p["powerup"] == 4:
+            eaten_set.add((p["x"], p["y"]))
+
+    # record powerups
+    if "passwall" in agent["self_agent"]["powerups"]:
+        passwall = agent["self_agent"]["powerups"]["passwall"]
+    else:
+        passwall = 0
+
+    if "shield" in agent["self_agent"]["powerups"]:
+        shield = agent["self_agent"]["powerups"]["shield"]
+    else:
+        shield = 0
+
+    current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
+
+    # scatter first
+    if step < 5:
+        return rust_perf.get_direction(
+            current_pos,
+            random.choice([(0, 12), (18, 17), (11, 11)]),
+            list(eaten_set),
+        )
+
+    # record locations have been arrived
+    if current_pos in global_coin_set:
+        eaten_set.add(current_pos)
+    if current_pos in global_powerup_set:
+        eaten_set.add(current_pos)
+        powerup_clock[current_pos] = 1
+
+    cancel_key = []
+    for powerup, clock in powerup_clock.items():
+        if clock == 12:
+            eaten_set.remove(powerup)
+            cancel_key.append(powerup)
+    for k in cancel_key:
+        del powerup_clock[k]
+
+    # enemies in out vision
+    other_agent_list = agent["other_agents"]
     allies_location = []
     for other_agent in other_agent_list:
-        if other_agent["role"] == "ATTACKER":
-            attacker_location.append((other_agent["x"], other_agent["y"]))
-        else:
-            if step > 3:
-                allies_location.append((other_agent["x"], other_agent["y"]))
+        if other_agent["role"] == "DEFENDER":
+            allies_location.append((other_agent["x"], other_agent["y"]))
 
-    # strategy one
-    if len(attacker_location) == 2:
-        next_move = rust_perf.check_two_enemies_move(current_pos, attacker_location)
+    # strategy one (corner)
+    if len(attacker_location) >= 1 and shield <= 3:
+        next_move = rust_perf.check_stay_or_not(
+            current_pos, attacker_location, passwall
+        )
+        # print(agent_id, current_pos, attacker_location, next_move, passwall)
         if next_move != "NO":
-            # raise Exception("early")
             return next_move
 
     # path, _ = rust_perf.collect_coins(current_pos, eatten_set)
     path, _ = rust_perf.collect_coins_using_powerup(
-        step,
-        agent_id,
         current_pos,
         eaten_set,
         allies_location,
@@ -97,28 +157,8 @@ def use_defender(agent, eaten_set, step) -> str:
         return random.choice(ACTIONS)
     else:
         next_move = get_direction(current_pos, path[0])
-        # print(
-        #     agent_id,
-        #     agent["self_agent"]["score"],
-        #     current_pos,
-        #     next_move,
-        #     attacker_location,
-        #     allies_location,
-        #     # "path: ",
-        #     # ["COIN" if p in global_coin_set else p for p in path],
-        #     # potential_score,
-        # )
-        # print(agent["self_agent"]["id"], path, current_pos, next_move, score)
-
-        # if next_move == "ERROR":
-        #     print(
-        #         agent_id,
-        #         current_pos,
-        #         "path: ",
-        #         ["COIN" if p in global_coin_set else p for p in path],
-        #         potential_score,
-        #     )
-        #     next_move = "STAY"
+        for powerup, _ in powerup_clock.items():
+            powerup_clock[powerup] += 1
         return next_move
     # # return rust_perf.get_direction(current_pos, move_to, block_list)
 
@@ -161,12 +201,14 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [7437]
+seeds = [943470]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
     eatten_set = set()
     step = 0
+    powerup_clock = {}
+    score_cache = defaultdict(int)
     start_game_time = time.time()
     # game loop
     while not game.is_over():
@@ -174,12 +216,30 @@ for seed in seeds:
         attacker_state = game.get_agent_states_by_player("attacker")
         defender_state = game.get_agent_states_by_player("defender")
 
+        attacker_location = []
+        for k, v in defender_state.items():
+            other_agent_list = v["other_agents"]
+            for other_agent in other_agent_list:
+                if other_agent["role"] == "ATTACKER":
+                    attacker_location.append((other_agent["x"], other_agent["y"]))
+
+            # if v["self_agent"]["score"] < score_cache[k]:
+            #     print(k, v["self_agent"]["score"], score_cache[k])
+            #     print("seed", seed)
+            #     raise Exception("e")
+            score_cache[k] = v["self_agent"]["score"]
         # apply actions for agents:
         attacker_actions = {
             _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         }
+        # attacker_actions = {
+        #     _id: use_attacker(attacker_state[_id], step, {})
+        #     for _id in attacker_state.keys()
+        # }
         defender_actions = {
-            _id: use_defender(defender_state[_id], eatten_set, step)
+            _id: use_defender(
+                defender_state[_id], eatten_set, step, powerup_clock, attacker_location
+            )
             for _id in defender_state.keys()
         }
 

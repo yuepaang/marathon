@@ -45,10 +45,10 @@ class Marathon(Game):
 
     def _launch(self):
         """Generate Game Map"""
-        self.reset_game("attacker", "defender", self.seed)
+        self.reset("attacker", "defender", self.seed)
         self._launch_env_flag = True
 
-    def reset(self):
+    def reset_game(self):
         self._final_eval_fake_reward = 0.0
 
         print("*************LAUNCH MARATHON GAME********************")

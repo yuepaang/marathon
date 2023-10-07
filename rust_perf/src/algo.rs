@@ -19,12 +19,14 @@ use crate::Node;
 use crate::Point;
 
 pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
-    let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    banned_points.remove(&end);
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
         cost: 0,
         point: start,
+        passwall: 0,
     });
 
     let mut visited = HashSet::new();
@@ -33,7 +35,12 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
 
     let mut came_from: HashMap<Point, (Direction, Point)> = HashMap::new();
 
-    while let Some(Node { cost: _, point }) = to_visit.pop() {
+    while let Some(Node {
+        cost: _,
+        point,
+        passwall: _,
+    }) = to_visit.pop()
+    {
         if point == end {
             let mut path: Vec<Point> = Vec::new();
             let mut current = end;
@@ -56,6 +63,7 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
             (0, -1, Direction::Up),
         ] {
             let mut next = (point.0 + i, point.1 + j);
+            let true_next = next.clone();
             if check_out_of_bound(next) {
                 continue;
             }
@@ -73,14 +81,30 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + crate::distance(next, end);
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    passwall: 0,
                 });
+            }
+
+            if true_next == end {
+                came_from.insert(true_next, (direction, point));
+                let mut path: Vec<Point> = Vec::new();
+                let mut current = end;
+
+                while let Some(&(direction, parent)) = came_from.get(&current) {
+                    let next_pos: Point = direction.get_next_pos(parent);
+                    path.push(next_pos);
+                    current = parent;
+                }
+
+                path.reverse();
+                return Some(path);
             }
         }
 
@@ -101,16 +125,18 @@ pub fn move_enemy(enemy_position: Point, target_position: Point) -> Point {
 pub fn a_star_search_power(
     start: Point,
     end: Point,
-    enemies: Vec<Point>,
-    mut passwall: usize,
+    allies: Vec<Point>,
+    passwall: usize,
 ) -> Option<Vec<Point>> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    // valueless position
     banned_points.insert((23, 0));
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
         cost: 0,
         point: start,
+        passwall,
     });
 
     let mut visited = HashSet::new();
@@ -119,7 +145,12 @@ pub fn a_star_search_power(
 
     let mut came_from: HashMap<Point, (Direction, Point)> = HashMap::new();
 
-    while let Some(Node { cost: _, point }) = to_visit.pop() {
+    while let Some(Node {
+        cost: _,
+        point,
+        passwall: pw,
+    }) = to_visit.pop()
+    {
         if point == end {
             let mut path: Vec<Point> = Vec::new();
             let mut current = end;
@@ -148,10 +179,10 @@ pub fn a_star_search_power(
             if visited.contains(&next) {
                 continue;
             }
-            if enemies.contains(&next) {
+            if allies.contains(&next) {
                 continue;
             }
-            if passwall <= 0 {
+            if pw <= 0 {
                 if banned_points.contains(&next) {
                     continue;
                 }
@@ -167,19 +198,19 @@ pub fn a_star_search_power(
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + crate::distance(next, end);
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    passwall: pw - 1,
                 });
             }
         }
 
         visited.insert(point);
-        passwall -= 1;
     }
     None
 }
@@ -193,7 +224,15 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
     if enemies.is_empty() {
         return escape_path;
     }
+    let enemies_dist: Vec<i32> = enemies.iter().map(|&e| distance(start, e)).collect();
+    let min_dist = enemies_dist.iter().min().unwrap();
+
     for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+        if min_dist == &1 {
+            if i == 0 && j == 0 {
+                continue;
+            }
+        }
         let mut next = (start.0 + i, start.1 + j);
         if check_out_of_bound(next) {
             continue;
@@ -217,6 +256,7 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
                 }
             }
         });
+        // skip direction into wall
         if flag {
             continue;
         }
@@ -229,25 +269,23 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
                 }
             }
         });
+        // direction away from enemy
         if flag {
             escape_path.push(true_next);
         }
-        // if escape_path.len() > 1 {
-        //     println!(
-        //         "start{:?}, enemies: {:?}, next: {:?}",
-        //         start, enemies, true_next
-        //     );
-        // }
     }
-    // if we locate in corner
+
+    // if no simple escape path
     if escape_path.is_empty() {
         let walls_vec: Vec<Point> = conf::WALLS
             .iter()
             .chain(enemies.iter())
             .map(|x| (x.0, x.1))
-            .filter(|&p| distance(p, start) < 3)
+            .filter(|&p| distance(start, p) <= 5)
             .collect();
+
         let hull_points = graham_hull(walls_vec);
+
         let mut target_hull_point = start.clone();
         let mut target_dist = 0;
         for &hp in hull_points.iter() {
@@ -260,7 +298,7 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
                     dist += distance(hp, e);
                 }
             } else {
-                for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+                for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
                     new_hp = (hp.0 + i, hp.1 + j);
                     if !conf::WALLS.contains(&new_hp) {
                         for &e in enemies.iter() {
@@ -389,7 +427,7 @@ pub fn dfs(
         // TODO: score calculation
         if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
             action_score[first_move_flag as usize] += f32::powf(0.95, search_depth as f32) * 2.0;
-            println!("next: {:?}, path: {:?}", next, path);
+            // println!("next: {:?}, path: {:?}", next, path);
             eaten_coins.insert(next);
         }
         if next_enemies.contains(&next) {
@@ -417,19 +455,19 @@ pub fn dfs(
 }
 
 pub fn bfs(
+    prev_action_idx: usize,
     root: Point,
     search_depth: usize,
     pass_wall: usize,
     current_point: Point,
     path: Vec<Point>,
-    eaten_coins: &mut HashSet<Point>,
+    eaten_coins: &HashSet<Point>,
     enemies: &Vec<Point>,
     banned_points: &HashSet<Point>,
     action_score: &mut Vec<f32>,
-    mut visited: HashSet<Point>,
 ) {
     let mut queue: VecDeque<_> = VecDeque::new();
-    queue.push_back((root, 0, pass_wall, current_point, path.clone(), 0));
+    queue.push_back((root, 1, pass_wall, current_point, path.clone(), 0));
 
     while let Some((
         current_root,
@@ -450,7 +488,7 @@ pub fn bfs(
             .collect::<Vec<Point>>();
 
         for &(action_idx, i, j) in &[(0, 0, 0), (1, -1, 0), (2, 1, 0), (3, 0, 1), (4, 0, -1)] {
-            if current_depth == 0 {
+            if current_depth == 1 {
                 current_first_move_flag = action_idx;
             }
 
@@ -462,17 +500,6 @@ pub fn bfs(
             if check_out_of_bound(next) {
                 continue;
             }
-
-            // if let Some(set) = visited.get(&current_first_move_flag) {
-            //     if set.contains(&next) {
-            //         continue;
-            //     }
-            // } else {
-            //     println!(
-            //         "The key {} is not present in the HashMap",
-            //         current_first_move_flag
-            //     );
-            // }
 
             // PORTAL MOVE
             let portail_index = conf::PORTALS
@@ -489,15 +516,9 @@ pub fn bfs(
                 continue;
             }
 
-            if enemies.is_empty() && visited.contains(&next) {
-                continue;
-            }
-
-            // visited
-            //     .entry(current_first_move_flag)
-            //     .or_insert_with(HashSet::new)
-            //     .insert(next);
-            visited.insert(next);
+            // if enemies.is_empty() {
+            //     continue;
+            // }
 
             if pass_wall <= 0 && banned_points.contains(&next) {
                 continue;
@@ -505,17 +526,8 @@ pub fn bfs(
 
             // TODO: score calculation
             if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
-                if search_depth == 0 {
-                    action_score[current_first_move_flag as usize] += 999.0
-                } else {
-                    action_score[current_first_move_flag as usize] +=
-                        f32::powf(0.95, search_depth as f32) * (2.0 + (10.0 - search_depth as f32));
-                    // println!(
-                    //     "root: {:?} flag: {:?} next: {:?}, path: {:?}",
-                    //     current_root, current_first_move_flag, next, current_path
-                    // );
-                }
-                eaten_coins.insert(next);
+                action_score[current_first_move_flag as usize] +=
+                    f32::powf(0.95, search_depth as f32) * 2.0;
             }
             if next_enemies.contains(&next) {
                 action_score[current_first_move_flag as usize] /= 2.0;
@@ -532,5 +544,12 @@ pub fn bfs(
                 current_first_move_flag,
             ));
         }
+    }
+    match prev_action_idx {
+        1 => action_score[2] *= 0.99,
+        2 => action_score[1] *= 0.99,
+        3 => action_score[4] *= 0.99,
+        4 => action_score[3] *= 0.99,
+        _ => (),
     }
 }

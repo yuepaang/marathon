@@ -417,19 +417,19 @@ pub fn dfs(
 }
 
 pub fn bfs(
+    prev_action_idx: usize,
     root: Point,
     search_depth: usize,
     pass_wall: usize,
     current_point: Point,
     path: Vec<Point>,
-    eaten_coins: &mut HashSet<Point>,
+    eaten_coins: &HashSet<Point>,
     enemies: &Vec<Point>,
     banned_points: &HashSet<Point>,
     action_score: &mut Vec<f32>,
-    mut visited: HashSet<Point>,
 ) {
     let mut queue: VecDeque<_> = VecDeque::new();
-    queue.push_back((root, 0, pass_wall, current_point, path.clone(), 0));
+    queue.push_back((root, 1, pass_wall, current_point, path.clone(), 0));
 
     while let Some((
         current_root,
@@ -450,7 +450,7 @@ pub fn bfs(
             .collect::<Vec<Point>>();
 
         for &(action_idx, i, j) in &[(0, 0, 0), (1, -1, 0), (2, 1, 0), (3, 0, 1), (4, 0, -1)] {
-            if current_depth == 0 {
+            if current_depth == 1 {
                 current_first_move_flag = action_idx;
             }
 
@@ -489,15 +489,9 @@ pub fn bfs(
                 continue;
             }
 
-            if enemies.is_empty() && visited.contains(&next) {
-                continue;
-            }
-
-            // visited
-            //     .entry(current_first_move_flag)
-            //     .or_insert_with(HashSet::new)
-            //     .insert(next);
-            visited.insert(next);
+            // if enemies.is_empty() {
+            //     continue;
+            // }
 
             if pass_wall <= 0 && banned_points.contains(&next) {
                 continue;
@@ -505,17 +499,8 @@ pub fn bfs(
 
             // TODO: score calculation
             if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
-                if search_depth == 0 {
-                    action_score[current_first_move_flag as usize] += 999.0
-                } else {
-                    action_score[current_first_move_flag as usize] +=
-                        f32::powf(0.95, search_depth as f32) * (2.0 + (10.0 - search_depth as f32));
-                    // println!(
-                    //     "root: {:?} flag: {:?} next: {:?}, path: {:?}",
-                    //     current_root, current_first_move_flag, next, current_path
-                    // );
-                }
-                eaten_coins.insert(next);
+                action_score[current_first_move_flag as usize] +=
+                    f32::powf(0.95, search_depth as f32) * 2.0;
             }
             if next_enemies.contains(&next) {
                 action_score[current_first_move_flag as usize] /= 2.0;
@@ -532,5 +517,12 @@ pub fn bfs(
                 current_first_move_flag,
             ));
         }
+    }
+    match prev_action_idx {
+        1 => action_score[2] *= 0.99,
+        2 => action_score[1] *= 0.99,
+        3 => action_score[4] *= 0.99,
+        4 => action_score[3] *= 0.99,
+        _ => (),
     }
 }

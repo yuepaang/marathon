@@ -434,6 +434,7 @@ fn explore_n_round_scores(
     real_eaten_coins: HashSet<Point>,
     enemies_position: Vec<Point>,
     pass_wall: usize,
+    prev_action_idx: usize,
     // search_depth: usize,
 ) -> PyResult<Vec<f32>> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
@@ -442,38 +443,26 @@ fn explore_n_round_scores(
     // STAY, LEFT, RIGHT, DOWN, UP
     let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
 
-    let mut eaten_coins = real_eaten_coins.clone();
+    let eaten_coins = real_eaten_coins.clone();
 
-    let visited = HashSet::new();
+    // let visited = HashSet::new();
 
-    // dfs(
-    //     start,
-    //     0,
-    //     pass_wall,
-    //     start,
-    //     vec![],
-    //     &mut eaten_coins,
-    //     &enemies_position,
-    //     &banned_points,
-    //     &mut action_scores,
-    //     -1,
-    // );
     let search_depth = match enemies_position.len() {
         0 => 9,
         _ => 3,
     };
 
     bfs(
+        prev_action_idx,
         start,
         search_depth,
         pass_wall,
         start,
         vec![],
-        &mut eaten_coins,
+        &eaten_coins,
         &enemies_position,
         &banned_points,
         &mut action_scores,
-        visited,
     );
 
     Ok(action_scores)

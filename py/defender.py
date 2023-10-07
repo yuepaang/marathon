@@ -3,9 +3,6 @@ import argparse
 import random
 import marathon
 import rust_perf
-from typing import List
-
-from game import Powerup
 
 ROLES = ["DEFENDER", "ATTACKER"]
 ACTIONS = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]

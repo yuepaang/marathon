@@ -250,6 +250,51 @@ fn catch_enemies_using_powerup(
     Ok(find_path)
 }
 
+#[pyfunction]
+fn collect_coins_using_hull(start: Point, eaten_coins: HashSet<Point>) -> PyResult<Vec<Point>> {
+    let coins_vec: Vec<Point> = conf::COINS
+        .par_iter()
+        .map(|x| (x.0, x.1))
+        .filter(|p| !eaten_coins.contains(p))
+        .collect();
+
+    let mut hull_points = algo::graham_hull(coins_vec);
+    hull_points.sort_by_key(|&p| distance(start, p));
+    let mut escape_path = Vec::new();
+
+    let mut target_hull_point = start.clone();
+    let mut target_dist = i32::MAX;
+    for &hp in hull_points.iter() {
+        let mut dist = distance(start, hp);
+
+        let mut use_nearby = false;
+        let mut new_hp = (hp.0, hp.1);
+        if conf::WALLS.contains(&hp) {
+            for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
+                new_hp = (hp.0 + i, hp.1 + j);
+                if !conf::WALLS.contains(&new_hp) {
+                    use_nearby = true;
+                    break;
+                }
+            }
+        }
+        if use_nearby {
+            dist = distance(start, new_hp);
+        }
+        if dist < target_dist {
+            target_dist = dist;
+            if !use_nearby {
+                target_hull_point = hp.clone();
+            } else {
+                target_hull_point = new_hp.clone();
+            }
+        }
+    }
+    let hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+    escape_path.extend_from_slice(&hull_path);
+    Ok(escape_path)
+}
+
 // BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn collect_coins_using_powerup(
@@ -380,5 +425,6 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(catch_enemies_using_powerup, m)?)?;
     m.add_function(wrap_pyfunction!(check_stay_or_not, m)?)?;
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_coins_using_hull, m)?)?;
     Ok(())
 }

@@ -134,33 +134,49 @@ def use_defender(agent, eaten_set, step, powerup_clock, attacker_location) -> st
             return next_move
 
     # path, _ = rust_perf.collect_coins(current_pos, eatten_set)
-    path, _ = rust_perf.collect_coins_using_powerup(
-        current_pos,
-        eaten_set,
-        allies_location,
-        attacker_location,
-        passwall,
-    )
-    if len(path) == 0:
-        print(
-            agent_id,
-            agent["self_agent"]["score"],
-            current_pos,
-            passwall,
-            agent["self_agent"]["powerups"],
-            attacker_location,
-            len(eaten_set),
-            eaten_set,
-        )
-        print(agent["other_agents"])
-        raise Exception("no path")
-        return random.choice(ACTIONS)
+    if agent_id == 4:
+        # print(
+        #     current_pos, agent["self_agent"]["score"], len(eaten_set), passwall, shield
+        # )
+        path = rust_perf.collect_coins_using_hull(current_pos, eaten_set)
+        if len(path) > 0:
+            return get_direction(current_pos, path[0])
+        else:
+            path, _ = rust_perf.collect_coins_using_powerup(
+                current_pos,
+                eaten_set,
+                allies_location,
+                attacker_location,
+                passwall,
+            )
+            return get_direction(current_pos, path[0])
     else:
-        next_move = get_direction(current_pos, path[0])
-        for powerup, _ in powerup_clock.items():
-            powerup_clock[powerup] += 1
-        return next_move
-    # # return rust_perf.get_direction(current_pos, move_to, block_list)
+        path, _ = rust_perf.collect_coins_using_powerup(
+            current_pos,
+            eaten_set,
+            allies_location,
+            attacker_location,
+            passwall,
+        )
+        if len(path) == 0:
+            print(
+                agent_id,
+                agent["self_agent"]["score"],
+                current_pos,
+                passwall,
+                agent["self_agent"]["powerups"],
+                attacker_location,
+                len(eaten_set),
+                eaten_set,
+            )
+            print(agent["other_agents"])
+            raise Exception("no path")
+            return random.choice(ACTIONS)
+        else:
+            next_move = get_direction(current_pos, path[0])
+            for powerup, _ in powerup_clock.items():
+                powerup_clock[powerup] += 1
+            return next_move
 
 
 def get_direction(curr, next):
@@ -201,7 +217,7 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [943470]
+seeds = [327705]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
@@ -227,7 +243,7 @@ for seed in seeds:
             #     print(k, v["self_agent"]["score"], score_cache[k])
             #     print("seed", seed)
             #     raise Exception("e")
-            score_cache[k] = v["self_agent"]["score"]
+            # score_cache[k] = v["self_agent"]["score"]
         # apply actions for agents:
         attacker_actions = {
             _id: random.choice(ACTIONS) for _id in attacker_state.keys()
@@ -259,6 +275,10 @@ for seed in seeds:
         win_count += 1
     attacker_score += game.get_result()["players"][0]["score"]
     defender_score += game.get_result()["players"][1]["score"]
+
+    defender_state = game.get_agent_states_by_player("defender")
+    for k, v in defender_state.items():
+        print(k, v["self_agent"]["score"])
 
 print("Win rate is ", win_count / len(seeds))
 print(f"Attacker score: {attacker_score} vs Defender score: {defender_score}")

@@ -254,21 +254,6 @@ fn check_stay_or_not(
     enemies_position: Vec<Point>,
     pass_wall: usize,
 ) -> PyResult<String> {
-    if enemies_position.len() == 1 && distance(start, enemies_position[0]) == 2 {
-        return Ok("STAY".to_string());
-    }
-
-    let mut is_diag = true;
-    for enemy in enemies_position.clone() {
-        if (enemy.0 - start.0).abs() != 1 || (enemy.1 - start.1).abs() != 1 {
-            is_diag = false;
-            break;
-        }
-    }
-    if is_diag {
-        return Ok("STAY".to_string());
-    }
-
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     for &(i, j, direction) in &[
         (-1, 0, "LEFT"),
@@ -309,6 +294,22 @@ fn check_stay_or_not(
             return Ok(direction.to_string());
         }
     }
+
+    if enemies_position.len() == 1 && distance(start, enemies_position[0]) == 2 {
+        return Ok("STAY".to_string());
+    }
+
+    let mut is_diag = true;
+    for enemy in enemies_position.clone() {
+        if (enemy.0 - start.0).abs() != 1 || (enemy.1 - start.1).abs() != 1 {
+            is_diag = false;
+            break;
+        }
+    }
+    if is_diag {
+        return Ok("STAY".to_string());
+    }
+
     Ok("STAY".to_string())
 }
 

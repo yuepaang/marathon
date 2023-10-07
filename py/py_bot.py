@@ -47,14 +47,24 @@ def get_direction(curr, next):
         return "ERROR"
 
 
-def handle_agent(agent: marathon.Agent, eaten_set, step, powerup_clock) -> str:
-    agent_id = agent.get_self_agent().id
+def handle_agent(
+    agent: marathon.Agent, eaten_set, step, powerup_clock, attacker_location
+) -> str:
     current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
+
+    for p in agent.get_powerups():
+        if p["powerup"] == "4" or p["powerup"] == 4:
+            eaten_set.add((p["x"], p["y"]))
 
     if "passwall" in agent.get_self_agent().powerups:
         passwall = agent.get_self_agent().powerups["passwall"]
     else:
         passwall = 0
+
+    if "shield" in agent.get_self_agent().powerups:
+        shield = agent.get_self_agent().powerups["shield"]
+    else:
+        shield = 0
 
     # scatter first
     if step < 5:
@@ -78,22 +88,14 @@ def handle_agent(agent: marathon.Agent, eaten_set, step, powerup_clock) -> str:
     for k in cancel_key:
         del powerup_clock[k]
 
-    # # attack powerup
-    # for owned_powerup in agent.get_powerups():
-    #     if owned_powerup.get("powerup") == 4:
-    #         eaten_set.add((owned_powerup.x, owned_powerup.y))
-
     other_agent_list = agent.get_other_agents()
-    attacker_location = []
     allies_location = []
     for other_agent in other_agent_list:
-        if other_agent.get_role() == "ATTACKER":
-            attacker_location.append((other_agent.x, other_agent.y))
-        else:
+        if other_agent.get_role() == "DEFENDER":
             allies_location.append((other_agent.x, other_agent.y))
 
     # strategy one (corner)
-    if len(attacker_location) >= 1:
+    if len(attacker_location) >= 1 and shield <= 3:
         next_move = rust_perf.check_stay_or_not(
             current_pos, attacker_location, passwall
         )
@@ -116,10 +118,6 @@ def handle_agent(agent: marathon.Agent, eaten_set, step, powerup_clock) -> str:
             powerup_clock[powerup] += 1
         return next_move
 
-    # path, _ = rust_perf.collect_coins(current_pos, eaten_set)
-    # next_move = get_direction(current_pos, path[0])
-    # return next_move
-
 
 class RealGame(marathon.Game):
     def __init__(self, match_id):
@@ -136,10 +134,19 @@ class RealGame(marathon.Game):
     def on_game_state(self, data: marathon.MessageGameState):
         self.step += 1
         action = {}
+        attacker_location = []
+        for _, v in data.get_states().items():
+            other_agent_list = v.get_other_agents()
+            for other_agent in other_agent_list:
+                if other_agent.get_role() == "ATTACKER":
+                    attacker_location.append(
+                        (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
+                    )
+
         for k, v in data.get_states().items():
             if v.get_role() == "DEFENDER":
                 action[k] = handle_agent(
-                    v, self.eaten_set, self.step, self.powerup_clock
+                    v, self.eaten_set, self.step, self.powerup_clock, attacker_location
                 )
             else:
                 action[k] = random.choice(ACTIONS)

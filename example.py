@@ -31,7 +31,7 @@ def get_distance(pos1, pos2):
     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
-def use_defender(agent, eaten_set, prev_action_indices) -> str:
+def use_defender(agent, eaten_set) -> str:
     # safe phrase
 
     agent_id = agent["self_agent"]["id"]
@@ -67,12 +67,8 @@ def use_defender(agent, eaten_set, prev_action_indices) -> str:
         eaten_set,
         attacker_location,
         passwall,
-        prev_action_indices[agent_id][-1]
-        if len(prev_action_indices[agent_id]) > 0
-        else 0,
     )
     idx = scores.index(max(scores))
-    prev_action_indices[agent_id].append(idx)
     if agent_id in [4]:
         print(
             agent_id,
@@ -83,9 +79,6 @@ def use_defender(agent, eaten_set, prev_action_indices) -> str:
             attacker_location,
             scores,
             eaten_set,
-            # "path: ",
-            # ["COIN" if p in global_coin_set else p for p in path],
-            # potential_score,
         )
         print(time.time() - s)
     return ACTIONS[idx]
@@ -134,7 +127,6 @@ for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
     eatten_set = set()
-    prev_action_indices = defaultdict(list)
     step = 0
     start_game_time = time.time()
     # game loop
@@ -148,7 +140,7 @@ for seed in seeds:
             _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         }
         defender_actions = {
-            _id: use_defender(defender_state[_id], eatten_set, prev_action_indices)
+            _id: use_defender(defender_state[_id], eatten_set)
             for _id in defender_state.keys()
         }
 

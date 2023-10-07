@@ -5,15 +5,11 @@
  * Last Modified Date: 26.09.2023
  * Last Modified By  : Yue Peng <yuepaang@gmail.com>
  */
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashSet},
-};
+use std::{cmp::Ordering, collections::HashSet};
 
 use algo::bfs;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::collections::HashMap;
 
 use crate::algo::deal_with_enemy_nearby;
 
@@ -77,163 +73,10 @@ impl Direction {
     }
 }
 
-fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
-    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    banned_points.extend(blocked);
-
-    let mut to_visit = BinaryHeap::new();
-    to_visit.push(Node {
-        cost: 0,
-        point: start,
-        passwall: 0,
-    });
-
-    let mut visited = HashSet::new();
-    let mut g_scores: HashMap<Point, i32> = HashMap::new();
-    g_scores.insert(start, 0);
-
-    let mut came_from = HashMap::new();
-
-    while let Some(Node {
-        cost: _,
-        point,
-        passwall: _,
-    }) = to_visit.pop()
-    {
-        if point == end {
-            let mut path: Vec<Direction> = Vec::new();
-            let mut current = end;
-
-            while let Some(&(direction, parent)) = came_from.get(&current) {
-                path.push(direction);
-                current = parent;
-            }
-
-            path.reverse();
-            return Some(path.get(0).unwrap().to_string());
-        }
-
-        for &(i, j, direction) in &[
-            (-1, 0, Direction::Left),
-            (1, 0, Direction::Right),
-            (0, 1, Direction::Down),
-            (0, -1, Direction::Up),
-        ] {
-            let mut next = (point.0 + i, point.1 + j);
-
-            if visited.contains(&next) || banned_points.contains(&next) {
-                continue;
-            }
-
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            }
-
-            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
-                came_from.insert(next, (direction, point));
-                g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score + distance(next, end);
-                to_visit.push(Node {
-                    cost: f_score,
-                    point: next,
-                    passwall: 0,
-                });
-            }
-        }
-
-        visited.insert(point);
-    }
-
-    None
-}
-
-fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
-    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    banned_points.extend(blocked);
-
-    let mut to_visit = BinaryHeap::new();
-    to_visit.push(Node {
-        cost: 0,
-        point: start,
-        passwall: 0,
-    });
-
-    let mut visited = HashSet::new();
-    let mut g_scores = HashMap::new();
-    g_scores.insert(start, 0);
-
-    let mut came_from = HashMap::new();
-
-    while let Some(Node {
-        cost,
-        point,
-        passwall: _,
-    }) = to_visit.pop()
-    {
-        if point == end {
-            let mut path: Vec<Direction> = Vec::new();
-            let mut current = end;
-
-            while let Some(&(direction, parent)) = came_from.get(&current) {
-                path.push(direction);
-                current = parent;
-            }
-
-            path.reverse();
-            let direction_path = path.into_iter().map(|x| x.to_string()).collect();
-            return Some((cost, direction_path));
-        }
-
-        for &(i, j, direction) in &[
-            (-1, 0, Direction::Left),
-            (1, 0, Direction::Right),
-            (0, 1, Direction::Down),
-            (0, -1, Direction::Up),
-        ] {
-            let mut next = (point.0 + i, point.1 + j);
-
-            if visited.contains(&next) || banned_points.contains(&next) {
-                continue;
-            }
-
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            }
-
-            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
-                came_from.insert(next, (direction, point));
-                g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score + distance(next, end);
-                to_visit.push(Node {
-                    cost: f_score,
-                    point: next,
-                    passwall: 0,
-                });
-            }
-        }
-
-        visited.insert(point);
-    }
-
-    None
-}
-
 #[pyfunction]
 fn get_direction(start: Point, end: Point, blocked: Vec<Point>) -> PyResult<String> {
     let blocked: HashSet<Point> = blocked.into_iter().collect();
-    let direction = astar(start, end, blocked).unwrap_or("STAY".to_string());
+    let direction = algo::astar(start, end, blocked).unwrap_or("STAY".to_string());
     Ok(direction)
 }
 
@@ -244,7 +87,7 @@ fn get_direction_path(
     blocked: Vec<Point>,
 ) -> PyResult<(i32, Vec<String>)> {
     let blocked: HashSet<Point> = blocked.into_iter().collect();
-    let direction_path = astar_path(start, end, blocked).unwrap();
+    let direction_path = algo::astar_path(start, end, blocked).unwrap();
     Ok(direction_path)
 }
 
@@ -267,7 +110,7 @@ fn check_stay_or_not(
             continue;
         }
 
-        // // PORTAL MOVE
+        // PORTAL MOVE
         // let index = conf::PORTALS
         //     .iter()
         //     .position(|portal| next.0 == portal.0 && next.1 == portal.1)
@@ -363,8 +206,6 @@ fn catch_enemies_using_powerup(
     mut pass_wall: usize,
     step: usize,
 ) -> PyResult<Vec<Point>> {
-    // let quad_id: i32 = agent_id - 4;
-
     let origin = start.clone();
     let mut search_depth = 0;
     let mut total_path = Vec::new();
@@ -419,7 +260,6 @@ fn collect_coins_using_powerup(
     mut pass_wall: usize,
 ) -> PyResult<(Vec<Point>, usize)> {
     let origin = start.clone();
-    // let quad_id: i32 = agent_id - 4;
 
     let mut search_depth = 0;
     let mut agent_coins_score = 0;
@@ -434,12 +274,13 @@ fn collect_coins_using_powerup(
     // find the potential move with greatest coin score
     loop {
         search_depth += 1;
-        let positive_targets: Vec<Point> = conf::COINS
+        let mut positive_targets: Vec<Point> = conf::COINS
             .par_iter()
             .chain(conf::POWERUPS.par_iter())
             .filter(|x| !eaten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
+        positive_targets.sort_by_key(|&t| distance(start, t));
 
         if positive_targets.is_empty() || search_depth > 10 {
             break;
@@ -500,14 +341,12 @@ fn explore_n_round_scores(
     real_eaten_coins: HashSet<Point>,
     enemies_position: Vec<Point>,
     pass_wall: usize,
-    prev_action_idx: usize,
-    // search_depth: usize,
 ) -> PyResult<Vec<f32>> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.insert((23, 0));
 
     // STAY, LEFT, RIGHT, DOWN, UP
-    let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+    // let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
 
     let eaten_coins = real_eaten_coins.clone();
 
@@ -518,8 +357,7 @@ fn explore_n_round_scores(
         _ => 3,
     };
 
-    bfs(
-        prev_action_idx,
+    let action_scores = bfs(
         start,
         search_depth,
         pass_wall,
@@ -528,7 +366,6 @@ fn explore_n_round_scores(
         &eaten_coins,
         &enemies_position,
         &banned_points,
-        &mut action_scores,
     );
 
     Ok(action_scores)

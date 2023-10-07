@@ -201,7 +201,7 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-seeds = [943470]
+# seeds = [943470]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 

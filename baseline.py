@@ -1,3 +1,4 @@
+from collections import defaultdict
 import json
 import time
 from game import Game
@@ -83,6 +84,14 @@ def use_defender(agent, eaten_set, step, powerup_clock) -> str:
         passwall = 0
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
+    # scatter first
+    if step < 5:
+        return rust_perf.get_direction(
+            current_pos,
+            random.choice([(0, 12), (18, 17), (11, 11)]),
+            list(eaten_set),
+        )
+
     # record locations have been arrived
     if current_pos in global_coin_set:
         eaten_set.add(current_pos)
@@ -111,14 +120,15 @@ def use_defender(agent, eaten_set, step, powerup_clock) -> str:
         if other_agent["role"] == "ATTACKER":
             attacker_location.append((other_agent["x"], other_agent["y"]))
         else:
-            if step > 3:
-                allies_location.append((other_agent["x"], other_agent["y"]))
+            allies_location.append((other_agent["x"], other_agent["y"]))
 
-    # strategy one
-    if len(attacker_location) == 2:
-        next_move = rust_perf.check_two_enemies_move(current_pos, attacker_location)
+    # strategy one (corner)
+    if len(attacker_location) >= 1:
+        next_move = rust_perf.check_stay_or_not(
+            current_pos, attacker_location, passwall
+        )
+        # print(current_pos, attacker_location, next_move, passwall)
         if next_move != "NO":
-            # raise Exception("early")
             return next_move
 
     # path, _ = rust_perf.collect_coins(current_pos, eatten_set)
@@ -145,28 +155,6 @@ def use_defender(agent, eaten_set, step, powerup_clock) -> str:
         return random.choice(ACTIONS)
     else:
         next_move = get_direction(current_pos, path[0])
-        # print(
-        #     agent_id,
-        #     agent["self_agent"]["score"],
-        #     current_pos,
-        #     next_move,
-        #     attacker_location,
-        #     allies_location,
-        #     # "path: ",
-        #     # ["COIN" if p in global_coin_set else p for p in path],
-        #     # potential_score,
-        # )
-        # print(agent["self_agent"]["id"], path, current_pos, next_move, score)
-
-        # if next_move == "ERROR":
-        #     print(
-        #         agent_id,
-        #         current_pos,
-        #         "path: ",
-        #         ["COIN" if p in global_coin_set else p for p in path],
-        #         potential_score,
-        #     )
-        #     next_move = "STAY"
         for powerup, _ in powerup_clock.items():
             powerup_clock[powerup] += 1
         return next_move
@@ -211,13 +199,14 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [7437]
+# seeds = [258960]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
     eatten_set = set()
     step = 0
     powerup_clock = {}
+    score_cache = defaultdict(int)
     start_game_time = time.time()
     # game loop
     while not game.is_over():
@@ -225,14 +214,20 @@ for seed in seeds:
         attacker_state = game.get_agent_states_by_player("attacker")
         defender_state = game.get_agent_states_by_player("defender")
 
+        # for k, v in defender_state.items():
+        #     if v["self_agent"]["score"] < score_cache[k]:
+        #         print(k, v["self_agent"]["score"], score_cache[k])
+        #         print("seed", seed)
+        #         raise Exception("e")
+        #     score_cache[k] = v["self_agent"]["score"]
         # apply actions for agents:
-        # attacker_actions = {
-        #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
-        # }
         attacker_actions = {
-            _id: use_attacker(attacker_state[_id], step, {})
-            for _id in attacker_state.keys()
+            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         }
+        # attacker_actions = {
+        #     _id: use_attacker(attacker_state[_id], step, {})
+        #     for _id in attacker_state.keys()
+        # }
         defender_actions = {
             _id: use_defender(defender_state[_id], eatten_set, step, powerup_clock)
             for _id in defender_state.keys()

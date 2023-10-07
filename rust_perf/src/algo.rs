@@ -19,7 +19,8 @@ use crate::Node;
 use crate::Point;
 
 pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
-    let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    banned_points.remove(&end);
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
@@ -62,6 +63,7 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
             (0, -1, Direction::Up),
         ] {
             let mut next = (point.0 + i, point.1 + j);
+            let true_next = next.clone();
             if check_out_of_bound(next) {
                 continue;
             }
@@ -79,7 +81,7 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + crate::distance(next, end);
@@ -88,6 +90,21 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
                     point: next,
                     passwall: 0,
                 });
+            }
+
+            if true_next == end {
+                came_from.insert(true_next, (direction, point));
+                let mut path: Vec<Point> = Vec::new();
+                let mut current = end;
+
+                while let Some(&(direction, parent)) = came_from.get(&current) {
+                    let next_pos: Point = direction.get_next_pos(parent);
+                    path.push(next_pos);
+                    current = parent;
+                }
+
+                path.reverse();
+                return Some(path);
             }
         }
 
@@ -181,7 +198,7 @@ pub fn a_star_search_power(
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + crate::distance(next, end);
@@ -207,11 +224,11 @@ pub fn deal_with_enemy_nearby(start: Point, enemies: Vec<Point>) -> Vec<Point> {
     if enemies.is_empty() {
         return escape_path;
     }
-    let enemies_dist: Vec<usize> = enemies.iter().map(|&e| distance(start, e)).collect();
+    let enemies_dist: Vec<i32> = enemies.iter().map(|&e| distance(start, e)).collect();
     let min_dist = enemies_dist.iter().min().unwrap();
 
     for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
-        if min_dist == &(1 as usize) {
+        if min_dist == &1 {
             if i == 0 && j == 0 {
                 continue;
             }
@@ -410,7 +427,7 @@ pub fn dfs(
         // TODO: score calculation
         if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
             action_score[first_move_flag as usize] += f32::powf(0.95, search_depth as f32) * 2.0;
-            println!("next: {:?}, path: {:?}", next, path);
+            // println!("next: {:?}, path: {:?}", next, path);
             eaten_coins.insert(next);
         }
         if next_enemies.contains(&next) {

@@ -19,17 +19,16 @@ use crate::algo::deal_with_enemy_nearby;
 
 mod algo;
 mod conf;
-mod game;
 
 pub type Point = (i32, i32);
 
-pub fn distance(p1: Point, p2: Point) -> usize {
-    (p1.0.abs_diff(p2.0) + p1.1.abs_diff(p2.1)) as usize
+pub fn distance(p1: Point, p2: Point) -> i32 {
+    (p1.0.abs_diff(p2.0) + p1.1.abs_diff(p2.1)) as i32
 }
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Node {
-    cost: usize,
+    cost: i32,
     point: Point,
     passwall: usize,
 }
@@ -90,7 +89,7 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
     });
 
     let mut visited = HashSet::new();
-    let mut g_scores = HashMap::new();
+    let mut g_scores: HashMap<Point, i32> = HashMap::new();
     g_scores.insert(start, 0);
 
     let mut came_from = HashMap::new();
@@ -130,12 +129,13 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
             let index = conf::PORTALS
                 .iter()
                 .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap();
-
-            next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].0);
+                .unwrap_or(99);
+            if index != 99 {
+                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+            }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + distance(next, end);
@@ -153,7 +153,7 @@ fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
     None
 }
 
-fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(usize, Vec<String>)> {
+fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.extend(blocked);
 
@@ -206,12 +206,13 @@ fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(usiz
             let index = conf::PORTALS
                 .iter()
                 .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap();
-
-            next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].0);
+                .unwrap_or(99);
+            if index != 99 {
+                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+            }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&usize::MAX) {
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + distance(next, end);
@@ -241,26 +242,74 @@ fn get_direction_path(
     start: Point,
     end: Point,
     blocked: Vec<Point>,
-) -> PyResult<(usize, Vec<String>)> {
+) -> PyResult<(i32, Vec<String>)> {
     let blocked: HashSet<Point> = blocked.into_iter().collect();
     let direction_path = astar_path(start, end, blocked).unwrap();
     Ok(direction_path)
 }
 
 #[pyfunction]
-fn check_two_enemies_move(start: Point, enemies_position: Vec<Point>) -> PyResult<String> {
+fn check_stay_or_not(
+    start: Point,
+    enemies_position: Vec<Point>,
+    pass_wall: usize,
+) -> PyResult<String> {
+    if enemies_position.len() == 1 && distance(start, enemies_position[0]) == 2 {
+        return Ok("STAY".to_string());
+    }
+
     let mut is_diag = true;
-    for enemy in enemies_position {
+    for enemy in enemies_position.clone() {
         if (enemy.0 - start.0).abs() != 1 || (enemy.1 - start.1).abs() != 1 {
             is_diag = false;
             break;
         }
     }
     if is_diag {
-        Ok("STAY".to_string())
-    } else {
-        Ok("NO".to_string())
+        return Ok("STAY".to_string());
     }
+
+    let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    for &(i, j, direction) in &[
+        (-1, 0, "LEFT"),
+        (1, 0, "RIGHT"),
+        (0, 1, "DOWN"),
+        (0, -1, "UP"),
+    ] {
+        let mut all_away = true;
+        let next = (start.0 + i, start.1 + j);
+        if algo::check_out_of_bound(next) {
+            continue;
+        }
+
+        // // PORTAL MOVE
+        // let index = conf::PORTALS
+        //     .iter()
+        //     .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+        //     .unwrap_or(99);
+        // if index != 99 {
+        //     next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+        // }
+        if pass_wall <= 0 {
+            if banned_points.contains(&next) {
+                continue;
+            }
+        }
+
+        for enemy in enemies_position.clone() {
+            // println!("next: {:?}, start: {:?}, enemy: {:?}", next, start, enemy);
+            let new_path = algo::a_star_search(next, enemy).unwrap();
+            let old_path = algo::a_star_search(start, enemy).unwrap();
+            // println!("new_path: {:?}, old_path: {:?}", new_path, old_path);
+            if new_path.len() <= old_path.len() {
+                all_away = false;
+            }
+        }
+        if all_away {
+            return Ok(direction.to_string());
+        }
+    }
+    Ok("STAY".to_string())
 }
 
 // BASELINE 170 round end the game
@@ -374,7 +423,6 @@ fn collect_coins_using_powerup(
     let mut search_depth = 0;
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
-    let mut no_coin_situation = false;
 
     // check escape strategy
     let escape_path = deal_with_enemy_nearby(start, enemies_position.clone());
@@ -384,12 +432,6 @@ fn collect_coins_using_powerup(
 
     // find the potential move with greatest coin score
     loop {
-        // Pre-calculate ememys' next position (assume chasing if in their vision)
-        // let next_enemies = enemies_position
-        //     .iter()
-        //     .map(|&enemy| algo::move_enemy(enemy.clone(), start))
-        //     .collect::<Vec<Point>>();
-
         search_depth += 1;
         let positive_targets: Vec<Point> = conf::COINS
             .par_iter()
@@ -418,29 +460,24 @@ fn collect_coins_using_powerup(
                     algo::a_star_search_power(start, portal, allies_position.clone(), pass_wall)
                 })
                 .collect();
-            no_coin_situation = true;
         }
 
-        if no_coin_situation && paths.is_empty() {
+        if paths.is_empty() {
             println!("No strategy for now: JUST STAY");
             total_path.push(origin);
             break;
         }
 
         let empty_path = vec![];
-        let mut sp = paths
+        let sp = paths
             .iter()
             .min_by_key(|path| path.len())
             .unwrap_or(&empty_path);
 
-        if sp.len() == 0 {
-            sp = paths.iter().min_by_key(|path| path.len()).unwrap();
-        }
+        // if sp.len() == 0 {
+        //     sp = paths.iter().min_by_key(|path| path.len()).unwrap();
+        // }
         total_path.extend_from_slice(&sp[..sp.len()]);
-
-        if no_coin_situation {
-            break;
-        }
 
         start = *sp.last().unwrap();
         eaten_coins.insert((start.0, start.1));
@@ -503,7 +540,7 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(collect_coins, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_powerup, m)?)?;
     m.add_function(wrap_pyfunction!(catch_enemies_using_powerup, m)?)?;
-    m.add_function(wrap_pyfunction!(check_two_enemies_move, m)?)?;
+    m.add_function(wrap_pyfunction!(check_stay_or_not, m)?)?;
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
     Ok(())
 }

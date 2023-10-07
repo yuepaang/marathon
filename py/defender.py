@@ -51,11 +51,11 @@ def get_direction(curr, next):
 
 
 def handle_agent(agent: marathon.Agent, eaten_set, step) -> str:
-    agent_id = agent.self_agent.get("id")
+    agent_id = agent.get_self_agent().id
     current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
 
-    if "passwall" in agent.self_agent.powerups:
-        passwall = agent.self_agent.powerups["passwall"]
+    if "passwall" in agent.get_self_agent().powerups:
+        passwall = agent.get_self_agent().powerups["passwall"]
     else:
         passwall = 0
 
@@ -69,17 +69,17 @@ def handle_agent(agent: marathon.Agent, eaten_set, step) -> str:
     # attack powerup
     for owned_powerup in agent.get_powerups():
         if owned_powerup.get("powerup") == 4:
-            eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
+            eaten_set.add((owned_powerup.x, owned_powerup.y))
 
     other_agent_list = agent.get_other_agents()
     attacker_location = []
     allies_location = []
     for other_agent in other_agent_list:
-        if other_agent.get("role") == "ATTACKER":
-            attacker_location.append((other_agent["x"], other_agent["y"]))
+        if other_agent.get_role() == "ATTACKER":
+            attacker_location.append((other_agent.x, other_agent.y))
         else:
             if step > 3:
-                allies_location.append((other_agent.get("x"), other_agent.get("y")))
+                allies_location.append((other_agent.x, other_agent.y))
 
     # strategy one
     if len(attacker_location) == 2:

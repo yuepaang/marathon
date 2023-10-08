@@ -4,6 +4,10 @@ from map.map import Map
 
 
 class Defender(Model):
+    def __init__(self, agents: list, opponents: list, map: Map):
+        super().__init__(agents, opponents, map)
+        self.role = "DEFENDER"
+
     # def step(self):
     #     '''
     #     主模型逻辑

@@ -1,9 +1,11 @@
 import json
 import time
-from game import Game
 import random
+import numpy as np
+from game import Game
 from map.map import Map
 from model.defender import Defender
+from model.utils import print_map_state
 
 ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
@@ -22,10 +24,11 @@ seeds = [random.randint(0, 1000000) for _ in range(5)]
 # seeds = [7437]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
-    attacker_state = game.get_agent_states_by_player("attacker")
-    defender_state = game.get_agent_states_by_player("defender")
-    attacker_ids = sorted(list(attacker_state.keys()))
-    defender_ids = sorted(list(defender_state.keys()))
+    attacker_obs = game.get_agent_states_by_player("attacker")
+    defender_obs = game.get_agent_states_by_player("defender")
+
+    attacker_ids = sorted(list(attacker_obs.keys()))
+    defender_ids = sorted(list(defender_obs.keys()))
 
     defender_map = Map()
     defender_map.load_map(map["map"])
@@ -41,29 +44,28 @@ for seed in seeds:
     # game loop
     while not game.is_over():
         # get game state for player:
-        attacker_state = game.get_agent_states_by_player("attacker")
-        defender_state = game.get_agent_states_by_player("defender")
-        defender.map.update_map(defender_state)
+        attacker_obs = game.get_agent_states_by_player("attacker")
+        defender_obs = game.get_agent_states_by_player("defender")
+        defender.map.update_map(defender_obs)
+        defender.update(defender_obs)
 
-        for k, v in attacker_state.items():
-            print("===>", k)
-            for k2, v2 in v.items():
-                print(k2, v2)
-        print()
+        opp_pos = dict()
+        for id, view in attacker_obs.items():
+            opp_pos[id] = defender_map.obs_to_map_coor(
+                (view["self_agent"]["x"], view["self_agent"]["y"]))
+        print_map_state(defender, opp_pos)
+
+        if defender.round > 100:
+            assert False
 
         # apply actions for agents:
-        attacker_actions = {
-            _id: random.choice(ACTIONS)
-            for _id in attacker_state.keys()
-        }
+        attacker_actions = {_id: "STAY" for _id in attacker_obs.keys()}
         defender_actions = defender.step()
 
         game.apply_actions(attacker_actions=attacker_actions,
                            defender_actions=defender_actions)
         step += 1
         # print(f"{step}/1152")
-
-        assert step < 2
 
     # get game result
     print(f"seed: {seed} --- game result:\r\n", game.get_result())

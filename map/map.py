@@ -99,5 +99,6 @@ class Map:
             # 道具
             for p in view["powerups"]:
                 mp = self.obs_to_map_coor((p["x"], p["y"]))
-                self.coin_map[mp[0], mp[1]] = self.power_up_map[p["powerup"]]
+                self.power_up_map[mp[0],
+                                  mp[1]] = self.power_up_map[p["powerup"]]
         return

@@ -21,11 +21,14 @@ class Model:
         self.my_last_pos = dict()
         for id in agents:
             self.my_last_pos[id] = (0, 0)
-        #预测每个对手在地图每个格子的概率
+        # 敌人位置分数
         self.pos_score = np.zeros(
             shape=[len(opponents), map.size[0], map.size[1]])
         # 探索视野能获得的得分 - 视野内的格子X回合内无得分
         self.vision_score = np.zeros(shape=map.size)
+        # 道具分数
+        self.power_up_score = np.zeros(shape=map.size)
+        self.map_score = np.zeros(shape=map.size)
         self.map = map
         self.round = 0
         return
@@ -78,6 +81,7 @@ class Model:
         2. 更新对手位置概率
         3. 更新视野得分
         '''
+        ### 1. 更新自身位置
         opp_in_view = dict()  # 视野内的对手
         view_pos = list()  # 视野内格子坐标
         for id, view in obs.items():
@@ -100,6 +104,7 @@ class Model:
         view_pos = list(set(view_pos))
         rows, cols = zip(*view_pos)
 
+        ### 2. 更新对手位置概率
         if self.round == 0:
             # 第一轮对手在镜像位置
             for index in range(len(self.opponents)):

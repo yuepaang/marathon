@@ -4,6 +4,8 @@ import random
 import marathon
 import rust_perf
 
+from game import Powerup
+
 ROLES = ["DEFENDER", "ATTACKER"]
 ACTIONS = ["UP", "DOWN", "LEFT", "RIGHT", "STAY"]
 
@@ -67,11 +69,6 @@ def attack(agent, enemies, powerup_clock) -> str:
     for k in cancel_key:
         del powerup_clock[k]
 
-    # attack powerup
-    # for owned_powerup in agent["powerups"]:
-    #     if owned_powerup.get("powerup") == 4:
-    #         eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
-
     path = rust_perf.catch_enemies_using_powerup(
         current_pos,
         passwall,
@@ -87,14 +84,23 @@ def attack(agent, enemies, powerup_clock) -> str:
 
 
 def defend(
-    agent: marathon.Agent, eaten_set, step, powerup_clock, attacker_location
+    agent: marathon.Agent,
+    eaten_set,
+    step,
+    powerup_clock,
+    attacker_location,
+    defender_scatter,
 ) -> str:
     current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
 
-    for p in agent.get_powerups():
-        if p["powerup"] == "4" or p["powerup"] == 4:
-            eaten_set.add((p["x"], p["y"]))
+    # powerup within view
+    for powerup in agent.get_powerups():
+        if powerup["powerup"] == str(Powerup.SWORD):
+            eaten_set.add((powerup["x"], powerup["y"]))
+        elif (powerup["x"], powerup["y"]) in eaten_set:
+            eaten_set.remove((powerup["x"], powerup["y"]))
 
+    # owned powerup
     if "passwall" in agent.get_self_agent().powerups:
         passwall = agent.get_self_agent().powerups["passwall"]
     else:
@@ -106,13 +112,20 @@ def defend(
         shield = 0
 
     # scatter first
-    if step < 5:
+    if step < 7:
+        if agent.get_self_agent().id not in defender_scatter:
+            return rust_perf.get_direction(
+                current_pos,
+                random.choice([(0, 12), (18, 17), (11, 11)]),
+                list(eaten_set),
+            )
         return rust_perf.get_direction(
             current_pos,
-            random.choice([(0, 12), (18, 17), (11, 11)]),
+            defender_scatter[agent.get_self_agent().id],
             list(eaten_set),
         )
 
+    # record locations have been arrived
     if current_pos in global_coin_set:
         eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
@@ -122,25 +135,28 @@ def defend(
     cancel_key = []
     for powerup, clock in powerup_clock.items():
         if clock == 12:
-            eaten_set.remove(powerup)
+            if powerup in eaten_set:
+                eaten_set.remove(powerup)
             cancel_key.append(powerup)
     for k in cancel_key:
         del powerup_clock[k]
 
     other_agent_list = agent.get_other_agents()
     allies_location = []
+    has_sword = False
     for other_agent in other_agent_list:
         if other_agent.get_role() == "DEFENDER":
             allies_location.append((other_agent.x, other_agent.y))
+        else:
+            if "sword" in other_agent["powerups"]:
+                has_sword = True
 
     # strategy one (corner)
-    if len(attacker_location) >= 1 and shield <= 3:
+    if (len(attacker_location) >= 1 and shield <= 3) or has_sword:
         next_move = rust_perf.check_stay_or_not(
             current_pos, attacker_location, passwall
         )
-        # print(current_pos, attacker_location, next_move, passwall)
-        if next_move != "NO":
-            return next_move
+        return next_move
 
     if agent.get_self_agent().id == 4:
         # print(
@@ -181,6 +197,7 @@ class RealGame(marathon.Game):
         self.step = 0
         self.eaten_set = set()
         self.powerup_clock = {}
+        self.defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
 
     def on_game_start(self, data):
         self.step = 0
@@ -215,6 +232,7 @@ class RealGame(marathon.Game):
                     self.step,
                     self.powerup_clock,
                     attacker_locations,
+                    self.defender_scatter,
                 )
             else:
                 action[agent_id] = attack(

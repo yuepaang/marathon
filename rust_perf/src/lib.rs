@@ -212,48 +212,62 @@ fn catch_enemies_using_powerup(
     let origin = start.clone();
 
     if enemies.is_empty() {
-        let coins_vec: Vec<Point> = conf::COINS
+        let mut explore_path = Vec::new();
+
+        let mut targets: Vec<Point> = conf::PORTALS
             .par_iter()
             .chain(conf::POWERUPS)
             .map(|x| (x.0, x.1))
             .collect();
-        let mut hull_points = algo::graham_hull(coins_vec);
-        hull_points.sort_by_key(|&p| distance(start, p));
-        let mut explore_path = Vec::new();
+        targets.sort_by_key(|&t| distance(start, t));
+        let target_path = algo::a_star_search_power(start, targets[0], vec![], pass_wall).unwrap();
 
-        let mut hull_path = Vec::new();
-        for &hp in hull_points.iter() {
-            let mut use_nearby = false;
-            let mut new_hp = (hp.0, hp.1);
-            if conf::WALLS.contains(&hp) && pass_wall <= 0 {
-                for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
-                    new_hp = (hp.0 + i, hp.1 + j);
-                    if !conf::WALLS.contains(&new_hp) {
-                        use_nearby = true;
-                        break;
-                    }
-                }
-            }
-            if !use_nearby {
-                let target_hull_point = hp.clone();
-                hull_path = algo::a_star_search(start, target_hull_point).unwrap();
-                if !hull_path.is_empty() {
-                    break;
-                }
-            } else {
-                let target_hull_point = new_hp.clone();
-                hull_path = algo::a_star_search(start, target_hull_point).unwrap();
-                if !hull_path.is_empty() {
-                    break;
-                }
-            }
+        if !target_path.is_empty() {
+            explore_path.extend_from_slice(&target_path);
         }
-        explore_path.extend_from_slice(&hull_path);
+
+        // let coins_vec: Vec<Point> = conf::COINS
+        //     .par_iter()
+        //     .chain(conf::POWERUPS)
+        //     .map(|x| (x.0, x.1))
+        //     .collect();
+        // let mut hull_points = algo::graham_hull(coins_vec);
+        // hull_points.sort_by_key(|&p| distance(start, p));
+
+        // let mut hull_path = Vec::new();
+        // for &hp in hull_points.iter() {
+        //     let mut use_nearby = false;
+        //     let mut new_hp = (hp.0, hp.1);
+        //     if conf::WALLS.contains(&hp) && pass_wall <= 0 {
+        //         for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
+        //             new_hp = (hp.0 + i, hp.1 + j);
+        //             if !conf::WALLS.contains(&new_hp) {
+        //                 use_nearby = true;
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     if !use_nearby {
+        //         let target_hull_point = hp.clone();
+        //         hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+        //         if !hull_path.is_empty() {
+        //             break;
+        //         }
+        //     } else {
+        //         let target_hull_point = new_hp.clone();
+        //         hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+        //         if !hull_path.is_empty() {
+        //             break;
+        //         }
+        //     }
+        // }
+        // explore_path.extend_from_slice(&hull_path);
 
         return Ok(explore_path);
     } else {
         enemies.sort_by_key(|&e| distance(origin, e));
-        let chase_path = algo::a_star_search_power(origin, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
+        let chase_path =
+            algo::a_star_search_power(origin, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
         return Ok(chase_path);
     }
 }

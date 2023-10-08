@@ -362,30 +362,24 @@ fn collect_coins_using_powerup(
 
         // TODO: away from potential enemies
         if paths.is_empty() {
-            println!("NO TARGET!");
-            paths = conf::PORTALS
+            println!("NO TARGET! current position: {:?}", start);
+            paths = conf::POWERUPS
                 .par_iter()
-                .filter_map(|&portal| {
-                    algo::a_star_search_power(start, portal, allies_position.clone(), pass_wall)
-                })
+                .filter_map(|&p| algo::a_star_search_power(start, p, vec![], pass_wall))
                 .collect();
         }
 
         if paths.is_empty() {
-            println!("No strategy for now: JUST STAY");
+            println!(
+                "No strategy for now: JUST STAY. enemies: {:?}",
+                enemies_position
+            );
             total_path.push(origin);
             break;
         }
 
-        let empty_path = vec![];
-        let sp = paths
-            .iter()
-            .min_by_key(|path| path.len())
-            .unwrap_or(&empty_path);
+        let sp = paths.iter().min_by_key(|path| path.len()).unwrap();
 
-        // if sp.len() == 0 {
-        //     sp = paths.iter().min_by_key(|path| path.len()).unwrap();
-        // }
         total_path.extend_from_slice(&sp[..sp.len()]);
 
         start = *sp.last().unwrap();

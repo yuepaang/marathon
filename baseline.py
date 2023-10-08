@@ -1,3 +1,18 @@
+# -*- coding: utf-8 -*-
+"""BASELINE.
+
+__author__ = Yue Peng
+__copyright__ = Copyright 2022
+__version__ = 1.0.0
+__maintainer__ = Yue Peng
+__email__ = yuepaang@gmail.com
+__status__ = Dev
+__filename__ = baseline.py
+__uuid__ = 267eb52b-88ff-487f-9816-8ebc77769c52
+__date__ = 2023-10-08 23:38:55
+__modified__ =
+"""
+
 from collections import defaultdict
 import json
 import time
@@ -13,6 +28,7 @@ with open("map.json") as f:
 
 global_coin_set = set()
 global_powerup_set = set()
+global_walls_list = []
 global_portal_map = {}
 ban_idx = set()
 for cell in global_map:
@@ -25,9 +41,40 @@ for cell in global_map:
         global_powerup_set.add((x, y))
     if cell_type == "PORTAL":
         global_portal_map[(x, y)] = (cell["pair"]["x"], cell["pair"]["y"])
+    if cell_type == "WALL":
+        global_walls_list.append((x, y))
+
+
+# pre calculate real distance
+# with open("dist.csv", "w", encoding="utf-8") as f:
+#     for i in range(24):
+#         for j in range(24):
+#             start = (i, j)
+#             if start in global_walls_list:
+#                 continue
+#             for m in range(i, 24):
+#                 for n in range(j, 24):
+#                     end = (m, n)
+#                     if end in global_walls_list:
+#                         continue
+#                     print(f"{start}${end}\n")
+#                     dist = len(rust_perf.get_direction_path(start, end, [])[1])
+#                     print(f"{start}${end}${dist}\n")
+#                     f.write(f"{start}${end}${dist}\n")
+# raise Exception("e")
+
+# load shortest path using astar with portals
+dist_map = defaultdict(dict)
+with open("dist.csv", "r", encoding="utf-8") as f:
+    for line in f.readlines():
+        fields = line.split("$")
+        dist_map[eval(fields[0])][eval(fields[1])] = int(fields[2])
 
 
 def get_distance(pos1, pos2):
+    if pos1 in dist_map:
+        if pos2 in dist_map[pos1]:
+            return dist_map[pos1][pos2]
     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
@@ -46,6 +93,8 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
     cancel_key = []
     for powerup, clock in powerup_clock.items():
         if clock == 12:
+            print(powerup_clock)
+            raise Exception("e")
             cancel_key.append(powerup)
     for k in cancel_key:
         del powerup_clock[k]
@@ -242,23 +291,27 @@ for seed in seeds:
                     defender_locations.add((other_agent["x"], other_agent["y"]))
 
         attacker_actions = {
-            _id: use_attacker(attacker_state[_id], list(defender_locations), {})
-            for _id in attacker_state.keys()
+            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         }
+        # attacker_actions = {
+        #     _id: use_attacker(attacker_state[_id], list(defender_locations), {})
+        #     for _id in attacker_state.keys()
+        # }
+
         defender_actions = {
             _id: random.choice(ACTIONS) for _id in defender_state.keys()
         }
-        # defender_actions = {
-        #     _id: use_defender(
-        #         defender_state[_id],
-        #         eatten_set,
-        #         step,
-        #         powerup_clock,
-        #         list(attacker_locations),
-        #         defender_scatter,
-        #     )
-        #     for _id in defender_state.keys()
-        # }
+        defender_actions = {
+            _id: use_defender(
+                defender_state[_id],
+                eatten_set,
+                step,
+                powerup_clock,
+                list(attacker_locations),
+                defender_scatter,
+            )
+            for _id in defender_state.keys()
+        }
 
         game.apply_actions(
             attacker_actions=attacker_actions, defender_actions=defender_actions

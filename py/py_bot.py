@@ -47,7 +47,46 @@ def get_direction(curr, next):
         return "ERROR"
 
 
-def handle_agent(
+def attack(agent, enemies, powerup_clock) -> str:
+    # record powerups
+    if "passwall" in agent.get_self_agent().powerups:
+        passwall = agent.get_self_agent().powerups["passwall"]
+    else:
+        passwall = 0
+
+    current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
+
+    # record locations have been arrived
+    if current_pos in global_powerup_set:
+        powerup_clock[current_pos] = 1
+
+    cancel_key = []
+    for powerup, clock in powerup_clock.items():
+        if clock == 12:
+            cancel_key.append(powerup)
+    for k in cancel_key:
+        del powerup_clock[k]
+
+    # attack powerup
+    # for owned_powerup in agent["powerups"]:
+    #     if owned_powerup.get("powerup") == 4:
+    #         eaten_set.add((owned_powerup["x"], owned_powerup["y"]))
+
+    path = rust_perf.catch_enemies_using_powerup(
+        current_pos,
+        passwall,
+        enemies,
+    )
+    if len(path) == 0:
+        return random.choice(ACTIONS)
+
+    next_move = get_direction(current_pos, path[0])
+    for powerup, _ in powerup_clock.items():
+        powerup_clock[powerup] += 1
+    return next_move
+
+
+def defend(
     agent: marathon.Agent, eaten_set, step, powerup_clock, attacker_location
 ) -> str:
     current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
@@ -103,20 +142,37 @@ def handle_agent(
         if next_move != "NO":
             return next_move
 
-    path, _ = rust_perf.collect_coins_using_powerup(
-        current_pos,
-        eaten_set,
-        allies_location,
-        attacker_location,
-        passwall,
-    )
-    if len(path) == 0:
-        return random.choice(ACTIONS)
+    if agent.get_self_agent().id == 4:
+        # print(
+        #     current_pos, agent["self_agent"]["score"], len(eaten_set), passwall, shield
+        # )
+        path = rust_perf.collect_coins_using_hull(current_pos, eaten_set)
+        if len(path) > 0:
+            return get_direction(current_pos, path[0])
+        else:
+            path, _ = rust_perf.collect_coins_using_powerup(
+                current_pos,
+                eaten_set,
+                allies_location,
+                attacker_location,
+                passwall,
+            )
+            return get_direction(current_pos, path[0])
     else:
-        next_move = get_direction(current_pos, path[0])
-        for powerup, _ in powerup_clock.items():
-            powerup_clock[powerup] += 1
-        return next_move
+        path, _ = rust_perf.collect_coins_using_powerup(
+            current_pos,
+            eaten_set,
+            allies_location,
+            attacker_location,
+            passwall,
+        )
+        if len(path) == 0:
+            return random.choice(ACTIONS)
+        else:
+            next_move = get_direction(current_pos, path[0])
+            for powerup, _ in powerup_clock.items():
+                powerup_clock[powerup] += 1
+            return next_move
 
 
 class RealGame(marathon.Game):
@@ -134,22 +190,36 @@ class RealGame(marathon.Game):
     def on_game_state(self, data: marathon.MessageGameState):
         self.step += 1
         action = {}
-        attacker_location = []
-        for _, v in data.get_states().items():
-            other_agent_list = v.get_other_agents()
+
+        # TODO: powerup
+        # prepare state
+        attacker_locations = []
+        defender_locations = []
+        for _, agent_state in data.get_states().items():
+            other_agent_list = agent_state.get_other_agents()
             for other_agent in other_agent_list:
                 if other_agent.get_role() == "ATTACKER":
-                    attacker_location.append(
+                    attacker_locations.append(
+                        (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
+                    )
+                elif other_agent.invulnerability_duration == 0:
+                    defender_locations.append(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
 
-        for k, v in data.get_states().items():
-            if v.get_role() == "DEFENDER":
-                action[k] = handle_agent(
-                    v, self.eaten_set, self.step, self.powerup_clock, attacker_location
+        for agent_id, agent_state in data.get_states().items():
+            if agent_state.get_role() == "DEFENDER":
+                action[agent_id] = defend(
+                    agent_state,
+                    self.eaten_set,
+                    self.step,
+                    self.powerup_clock,
+                    attacker_locations,
                 )
             else:
-                action[k] = random.choice(ACTIONS)
+                action[agent_id] = attack(
+                    agent_state, defender_locations, self.powerup_clock
+                )
         return action
 
     def on_game_end(self, data):

@@ -98,6 +98,8 @@ fn check_stay_or_not(
     pass_wall: usize,
 ) -> PyResult<String> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+
+    // Calculate the overall direction if the cell is further away from all enemies
     for &(i, j, direction) in &[
         (-1, 0, "LEFT"),
         (1, 0, "RIGHT"),
@@ -153,6 +155,7 @@ fn check_stay_or_not(
         return Ok("STAY".to_string());
     }
 
+    // TODO: stay?
     Ok("STAY".to_string())
 }
 
@@ -202,52 +205,57 @@ fn collect_coins(
 // BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn catch_enemies_using_powerup(
-    mut start: Point,
-    mut pass_wall: usize,
-    step: usize,
+    start: Point,
+    pass_wall: usize,
+    mut enemies: Vec<Point>,
 ) -> PyResult<Vec<Point>> {
     let origin = start.clone();
-    let mut search_depth = 0;
-    let mut total_path = Vec::new();
-    let mut visited: HashSet<Point> = HashSet::new();
-    let enemies_base: Vec<Point> = conf::DEFENDER_BASE.iter().map(|x| (x.0, x.1)).collect();
 
-    // find the potential move with greatest coin score
-    loop {
-        search_depth += 1;
-        let positive_targets: Vec<Point> = conf::COINS.par_iter().map(|x| (x.0, x.1)).collect();
-
-        if positive_targets.is_empty() || search_depth > 10 || total_path.len() > step + 1 {
-            break;
-        }
-
-        let paths: Vec<Vec<Point>> = positive_targets
+    if enemies.is_empty() {
+        let coins_vec: Vec<Point> = conf::COINS
             .par_iter()
-            .filter(|&target| !visited.contains(target))
-            .filter_map(|&target| {
-                algo::a_star_search_power(enemies_base[0], target, vec![start], pass_wall)
-            })
+            .chain(conf::POWERUPS)
+            .map(|x| (x.0, x.1))
             .collect();
+        let mut hull_points = algo::graham_hull(coins_vec);
+        hull_points.sort_by_key(|&p| distance(start, p));
+        let mut explore_path = Vec::new();
 
-        let empty_path = vec![];
-        let sp = paths
-            .iter()
-            .min_by_key(|path| path.len())
-            .unwrap_or(&empty_path);
+        let mut hull_path = Vec::new();
+        for &hp in hull_points.iter() {
+            let mut use_nearby = false;
+            let mut new_hp = (hp.0, hp.1);
+            if conf::WALLS.contains(&hp) && pass_wall <= 0 {
+                for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
+                    new_hp = (hp.0 + i, hp.1 + j);
+                    if !conf::WALLS.contains(&new_hp) {
+                        use_nearby = true;
+                        break;
+                    }
+                }
+            }
+            if !use_nearby {
+                let target_hull_point = hp.clone();
+                hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+                if !hull_path.is_empty() {
+                    break;
+                }
+            } else {
+                let target_hull_point = new_hp.clone();
+                hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+                if !hull_path.is_empty() {
+                    break;
+                }
+            }
+        }
+        explore_path.extend_from_slice(&hull_path);
 
-        total_path.extend_from_slice(&sp[..sp.len()]);
-
-        start = *sp.last().unwrap();
-        visited.insert((start.0, start.1));
-        pass_wall -= sp.len();
+        return Ok(explore_path);
+    } else {
+        enemies.sort_by_key(|&e| distance(origin, e));
+        let chase_path = algo::a_star_search_power(origin, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
+        return Ok(chase_path);
     }
-
-    if total_path.len() == 0 {
-        println!("no total path generated.")
-    }
-    let find_path = algo::a_star_search_power(origin, total_path[step], vec![], pass_wall).unwrap();
-
-    Ok(find_path)
 }
 
 #[pyfunction]

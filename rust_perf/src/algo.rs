@@ -18,6 +18,159 @@ use crate::Direction;
 use crate::Node;
 use crate::Point;
 
+pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
+    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    banned_points.extend(blocked);
+
+    let mut to_visit = BinaryHeap::new();
+    to_visit.push(Node {
+        cost: 0,
+        point: start,
+        passwall: 0,
+    });
+
+    let mut visited = HashSet::new();
+    let mut g_scores: HashMap<Point, i32> = HashMap::new();
+    g_scores.insert(start, 0);
+
+    let mut came_from = HashMap::new();
+
+    while let Some(Node {
+        cost: _,
+        point,
+        passwall: _,
+    }) = to_visit.pop()
+    {
+        if point == end {
+            let mut path: Vec<Direction> = Vec::new();
+            let mut current = end;
+
+            while let Some(&(direction, parent)) = came_from.get(&current) {
+                path.push(direction);
+                current = parent;
+            }
+
+            path.reverse();
+            return Some(path.get(0).unwrap().to_string());
+        }
+
+        for &(i, j, direction) in &[
+            (-1, 0, Direction::Left),
+            (1, 0, Direction::Right),
+            (0, 1, Direction::Down),
+            (0, -1, Direction::Up),
+        ] {
+            let mut next = (point.0 + i, point.1 + j);
+
+            if visited.contains(&next) || banned_points.contains(&next) {
+                continue;
+            }
+
+            // PORTAL MOVE
+            let index = conf::PORTALS
+                .iter()
+                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+                .unwrap_or(99);
+            if index != 99 {
+                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+            }
+
+            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
+                came_from.insert(next, (direction, point));
+                g_scores.insert(next, tentative_g_score);
+                let f_score = tentative_g_score + distance(next, end);
+                to_visit.push(Node {
+                    cost: f_score,
+                    point: next,
+                    passwall: 0,
+                });
+            }
+        }
+
+        visited.insert(point);
+    }
+
+    None
+}
+
+pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
+    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    banned_points.extend(blocked);
+
+    let mut to_visit = BinaryHeap::new();
+    to_visit.push(Node {
+        cost: 0,
+        point: start,
+        passwall: 0,
+    });
+
+    let mut visited = HashSet::new();
+    let mut g_scores = HashMap::new();
+    g_scores.insert(start, 0);
+
+    let mut came_from = HashMap::new();
+
+    while let Some(Node {
+        cost,
+        point,
+        passwall: _,
+    }) = to_visit.pop()
+    {
+        if point == end {
+            let mut path: Vec<Direction> = Vec::new();
+            let mut current = end;
+
+            while let Some(&(direction, parent)) = came_from.get(&current) {
+                path.push(direction);
+                current = parent;
+            }
+
+            path.reverse();
+            let direction_path = path.into_iter().map(|x| x.to_string()).collect();
+            return Some((cost, direction_path));
+        }
+
+        for &(i, j, direction) in &[
+            (-1, 0, Direction::Left),
+            (1, 0, Direction::Right),
+            (0, 1, Direction::Down),
+            (0, -1, Direction::Up),
+        ] {
+            let mut next = (point.0 + i, point.1 + j);
+
+            if visited.contains(&next) || banned_points.contains(&next) {
+                continue;
+            }
+
+            // PORTAL MOVE
+            let index = conf::PORTALS
+                .iter()
+                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+                .unwrap_or(99);
+            if index != 99 {
+                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+            }
+
+            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
+                came_from.insert(next, (direction, point));
+                g_scores.insert(next, tentative_g_score);
+                let f_score = tentative_g_score + distance(next, end);
+                to_visit.push(Node {
+                    cost: f_score,
+                    point: next,
+                    passwall: 0,
+                });
+            }
+        }
+
+        visited.insert(point);
+    }
+
+    None
+}
+
 pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.remove(&end);
@@ -455,7 +608,6 @@ pub fn dfs(
 }
 
 pub fn bfs(
-    prev_action_idx: usize,
     root: Point,
     search_depth: usize,
     pass_wall: usize,
@@ -464,10 +616,20 @@ pub fn bfs(
     eaten_coins: &HashSet<Point>,
     enemies: &Vec<Point>,
     banned_points: &HashSet<Point>,
-    action_score: &mut Vec<f32>,
-) {
+) -> Vec<f32> {
+    // STAY, LEFT, RIGHT, DOWN, UP
+    let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+
     let mut queue: VecDeque<_> = VecDeque::new();
-    queue.push_back((root, 1, pass_wall, current_point, path.clone(), 0));
+    queue.push_back((
+        root,
+        1,
+        pass_wall,
+        current_point,
+        path.clone(),
+        0,
+        eaten_coins.clone(),
+    ));
 
     while let Some((
         current_root,
@@ -476,6 +638,7 @@ pub fn bfs(
         current_point,
         current_path,
         mut current_first_move_flag,
+        virtual_coins,
     )) = queue.pop_front()
     {
         if current_depth > search_depth {
@@ -501,6 +664,10 @@ pub fn bfs(
                 continue;
             }
 
+            if current_path.contains(&next) {
+                continue;
+            }
+
             // PORTAL MOVE
             let portail_index = conf::PORTALS
                 .par_iter()
@@ -512,9 +679,6 @@ pub fn bfs(
                     conf::PORTALS_DEST[portail_index].1,
                 );
             }
-            if current_path.contains(&next) {
-                continue;
-            }
 
             // if enemies.is_empty() {
             //     continue;
@@ -523,14 +687,28 @@ pub fn bfs(
             if pass_wall <= 0 && banned_points.contains(&next) {
                 continue;
             }
-
+            let mut cloned_coins = virtual_coins.clone();
             // TODO: score calculation
-            if conf::COINS.contains(&next) && !eaten_coins.contains(&next) {
-                action_score[current_first_move_flag as usize] +=
-                    f32::powf(0.95, search_depth as f32) * 2.0;
+            if conf::COINS.contains(&next) && !cloned_coins.contains(&next) {
+                action_scores[current_first_move_flag as usize] +=
+                    f32::powf(0.95, current_depth as f32) * 2.0;
+                cloned_coins.insert(next);
             }
+            // for c in conf::COINS.iter() {
+            //     if !eaten_coins.contains(c) {
+            //         let dist = distance(next, *c);
+            //         if dist == 0 {
+            //             action_scores[current_first_move_flag as usize] +=
+            //                 1000.0 / current_depth as f32
+            //         } else {
+            //             action_scores[current_first_move_flag as usize] +=
+            //                 f32::powf(0.95, current_depth as f32) * (1.0 / dist as f32) * 2.0;
+            //         }
+            //     }
+            // }
+
             if next_enemies.contains(&next) {
-                action_score[current_first_move_flag as usize] /= 2.0;
+                action_scores[current_first_move_flag as usize] /= 2.0;
             }
 
             let mut new_path = current_path.clone();
@@ -542,14 +720,9 @@ pub fn bfs(
                 next,
                 new_path,
                 current_first_move_flag,
+                cloned_coins,
             ));
         }
     }
-    match prev_action_idx {
-        1 => action_score[2] *= 0.99,
-        2 => action_score[1] *= 0.99,
-        3 => action_score[4] *= 0.99,
-        4 => action_score[3] *= 0.99,
-        _ => (),
-    }
+    action_scores
 }

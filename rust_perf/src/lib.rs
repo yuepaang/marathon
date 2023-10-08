@@ -5,15 +5,11 @@
  * Last Modified Date: 26.09.2023
  * Last Modified By  : Yue Peng <yuepaang@gmail.com>
  */
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashSet},
-};
+use std::{cmp::Ordering, collections::HashSet};
 
 use algo::bfs;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::collections::HashMap;
 
 use crate::algo::deal_with_enemy_nearby;
 
@@ -77,163 +73,10 @@ impl Direction {
     }
 }
 
-fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
-    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    banned_points.extend(blocked);
-
-    let mut to_visit = BinaryHeap::new();
-    to_visit.push(Node {
-        cost: 0,
-        point: start,
-        passwall: 0,
-    });
-
-    let mut visited = HashSet::new();
-    let mut g_scores: HashMap<Point, i32> = HashMap::new();
-    g_scores.insert(start, 0);
-
-    let mut came_from = HashMap::new();
-
-    while let Some(Node {
-        cost: _,
-        point,
-        passwall: _,
-    }) = to_visit.pop()
-    {
-        if point == end {
-            let mut path: Vec<Direction> = Vec::new();
-            let mut current = end;
-
-            while let Some(&(direction, parent)) = came_from.get(&current) {
-                path.push(direction);
-                current = parent;
-            }
-
-            path.reverse();
-            return Some(path.get(0).unwrap().to_string());
-        }
-
-        for &(i, j, direction) in &[
-            (-1, 0, Direction::Left),
-            (1, 0, Direction::Right),
-            (0, 1, Direction::Down),
-            (0, -1, Direction::Up),
-        ] {
-            let mut next = (point.0 + i, point.1 + j);
-
-            if visited.contains(&next) || banned_points.contains(&next) {
-                continue;
-            }
-
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            }
-
-            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
-                came_from.insert(next, (direction, point));
-                g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score + distance(next, end);
-                to_visit.push(Node {
-                    cost: f_score,
-                    point: next,
-                    passwall: 0,
-                });
-            }
-        }
-
-        visited.insert(point);
-    }
-
-    None
-}
-
-fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
-    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    banned_points.extend(blocked);
-
-    let mut to_visit = BinaryHeap::new();
-    to_visit.push(Node {
-        cost: 0,
-        point: start,
-        passwall: 0,
-    });
-
-    let mut visited = HashSet::new();
-    let mut g_scores = HashMap::new();
-    g_scores.insert(start, 0);
-
-    let mut came_from = HashMap::new();
-
-    while let Some(Node {
-        cost,
-        point,
-        passwall: _,
-    }) = to_visit.pop()
-    {
-        if point == end {
-            let mut path: Vec<Direction> = Vec::new();
-            let mut current = end;
-
-            while let Some(&(direction, parent)) = came_from.get(&current) {
-                path.push(direction);
-                current = parent;
-            }
-
-            path.reverse();
-            let direction_path = path.into_iter().map(|x| x.to_string()).collect();
-            return Some((cost, direction_path));
-        }
-
-        for &(i, j, direction) in &[
-            (-1, 0, Direction::Left),
-            (1, 0, Direction::Right),
-            (0, 1, Direction::Down),
-            (0, -1, Direction::Up),
-        ] {
-            let mut next = (point.0 + i, point.1 + j);
-
-            if visited.contains(&next) || banned_points.contains(&next) {
-                continue;
-            }
-
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            }
-
-            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
-            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
-                came_from.insert(next, (direction, point));
-                g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score + distance(next, end);
-                to_visit.push(Node {
-                    cost: f_score,
-                    point: next,
-                    passwall: 0,
-                });
-            }
-        }
-
-        visited.insert(point);
-    }
-
-    None
-}
-
 #[pyfunction]
 fn get_direction(start: Point, end: Point, blocked: Vec<Point>) -> PyResult<String> {
     let blocked: HashSet<Point> = blocked.into_iter().collect();
-    let direction = astar(start, end, blocked).unwrap_or("STAY".to_string());
+    let direction = algo::astar(start, end, blocked).unwrap_or("STAY".to_string());
     Ok(direction)
 }
 
@@ -244,7 +87,7 @@ fn get_direction_path(
     blocked: Vec<Point>,
 ) -> PyResult<(i32, Vec<String>)> {
     let blocked: HashSet<Point> = blocked.into_iter().collect();
-    let direction_path = astar_path(start, end, blocked).unwrap();
+    let direction_path = algo::astar_path(start, end, blocked).unwrap();
     Ok(direction_path)
 }
 
@@ -255,6 +98,8 @@ fn check_stay_or_not(
     pass_wall: usize,
 ) -> PyResult<String> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+
+    // Calculate the overall direction if the cell is further away from all enemies
     for &(i, j, direction) in &[
         (-1, 0, "LEFT"),
         (1, 0, "RIGHT"),
@@ -267,7 +112,7 @@ fn check_stay_or_not(
             continue;
         }
 
-        // // PORTAL MOVE
+        // PORTAL MOVE
         // let index = conf::PORTALS
         //     .iter()
         //     .position(|portal| next.0 == portal.0 && next.1 == portal.1)
@@ -310,6 +155,7 @@ fn check_stay_or_not(
         return Ok("STAY".to_string());
     }
 
+    // TODO: stay?
     Ok("STAY".to_string())
 }
 
@@ -359,54 +205,116 @@ fn collect_coins(
 // BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn catch_enemies_using_powerup(
-    mut start: Point,
-    mut pass_wall: usize,
-    step: usize,
+    start: Point,
+    pass_wall: usize,
+    mut enemies: Vec<Point>,
 ) -> PyResult<Vec<Point>> {
-    // let quad_id: i32 = agent_id - 4;
-
     let origin = start.clone();
-    let mut search_depth = 0;
-    let mut total_path = Vec::new();
-    let mut visited: HashSet<Point> = HashSet::new();
-    let enemies_base: Vec<Point> = conf::DEFENDER_BASE.iter().map(|x| (x.0, x.1)).collect();
 
-    // find the potential move with greatest coin score
-    loop {
-        search_depth += 1;
-        let positive_targets: Vec<Point> = conf::COINS.par_iter().map(|x| (x.0, x.1)).collect();
+    if enemies.is_empty() {
+        let mut explore_path = Vec::new();
 
-        if positive_targets.is_empty() || search_depth > 10 || total_path.len() > step + 1 {
-            break;
+        let mut targets: Vec<Point> = conf::PORTALS
+            .par_iter()
+            .chain(conf::POWERUPS)
+            .map(|x| (x.0, x.1))
+            .collect();
+        targets.sort_by_key(|&t| distance(start, t));
+        let target_path = algo::a_star_search_power(start, targets[0], vec![], pass_wall).unwrap();
+
+        if !target_path.is_empty() {
+            explore_path.extend_from_slice(&target_path);
         }
 
-        let paths: Vec<Vec<Point>> = positive_targets
-            .par_iter()
-            .filter(|&target| !visited.contains(target))
-            .filter_map(|&target| {
-                algo::a_star_search_power(enemies_base[0], target, vec![start], pass_wall)
-            })
-            .collect();
+        // let coins_vec: Vec<Point> = conf::COINS
+        //     .par_iter()
+        //     .chain(conf::POWERUPS)
+        //     .map(|x| (x.0, x.1))
+        //     .collect();
+        // let mut hull_points = algo::graham_hull(coins_vec);
+        // hull_points.sort_by_key(|&p| distance(start, p));
 
-        let empty_path = vec![];
-        let sp = paths
-            .iter()
-            .min_by_key(|path| path.len())
-            .unwrap_or(&empty_path);
+        // let mut hull_path = Vec::new();
+        // for &hp in hull_points.iter() {
+        //     let mut use_nearby = false;
+        //     let mut new_hp = (hp.0, hp.1);
+        //     if conf::WALLS.contains(&hp) && pass_wall <= 0 {
+        //         for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
+        //             new_hp = (hp.0 + i, hp.1 + j);
+        //             if !conf::WALLS.contains(&new_hp) {
+        //                 use_nearby = true;
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     if !use_nearby {
+        //         let target_hull_point = hp.clone();
+        //         hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+        //         if !hull_path.is_empty() {
+        //             break;
+        //         }
+        //     } else {
+        //         let target_hull_point = new_hp.clone();
+        //         hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+        //         if !hull_path.is_empty() {
+        //             break;
+        //         }
+        //     }
+        // }
+        // explore_path.extend_from_slice(&hull_path);
 
-        total_path.extend_from_slice(&sp[..sp.len()]);
-
-        start = *sp.last().unwrap();
-        visited.insert((start.0, start.1));
-        pass_wall -= sp.len();
+        return Ok(explore_path);
+    } else {
+        enemies.sort_by_key(|&e| distance(origin, e));
+        let chase_path =
+            algo::a_star_search_power(origin, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
+        return Ok(chase_path);
     }
+}
 
-    if total_path.len() == 0 {
-        println!("no total path generated.")
+#[pyfunction]
+fn collect_coins_using_hull(start: Point, eaten_coins: HashSet<Point>) -> PyResult<Vec<Point>> {
+    let coins_vec: Vec<Point> = conf::COINS
+        .par_iter()
+        .map(|x| (x.0, x.1))
+        .filter(|p| !eaten_coins.contains(p))
+        .collect();
+
+    let mut hull_points = algo::graham_hull(coins_vec);
+    hull_points.sort_by_key(|&p| distance(start, p));
+    let mut escape_path = Vec::new();
+
+    let mut target_hull_point = start.clone();
+    let mut target_dist = i32::MAX;
+    for &hp in hull_points.iter() {
+        let mut dist = distance(start, hp);
+
+        let mut use_nearby = false;
+        let mut new_hp = (hp.0, hp.1);
+        if conf::WALLS.contains(&hp) {
+            for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
+                new_hp = (hp.0 + i, hp.1 + j);
+                if !conf::WALLS.contains(&new_hp) {
+                    use_nearby = true;
+                    break;
+                }
+            }
+        }
+        if use_nearby {
+            dist = distance(start, new_hp);
+        }
+        if dist < target_dist {
+            target_dist = dist;
+            if !use_nearby {
+                target_hull_point = hp.clone();
+            } else {
+                target_hull_point = new_hp.clone();
+            }
+        }
     }
-    let find_path = algo::a_star_search_power(origin, total_path[step], vec![], pass_wall).unwrap();
-
-    Ok(find_path)
+    let hull_path = algo::a_star_search(start, target_hull_point).unwrap();
+    escape_path.extend_from_slice(&hull_path);
+    Ok(escape_path)
 }
 
 // BASELINE of defenders with some simple strategies
@@ -419,7 +327,6 @@ fn collect_coins_using_powerup(
     mut pass_wall: usize,
 ) -> PyResult<(Vec<Point>, usize)> {
     let origin = start.clone();
-    // let quad_id: i32 = agent_id - 4;
 
     let mut search_depth = 0;
     let mut agent_coins_score = 0;
@@ -434,12 +341,13 @@ fn collect_coins_using_powerup(
     // find the potential move with greatest coin score
     loop {
         search_depth += 1;
-        let positive_targets: Vec<Point> = conf::COINS
+        let mut positive_targets: Vec<Point> = conf::COINS
             .par_iter()
             .chain(conf::POWERUPS.par_iter())
             .filter(|x| !eaten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
+        positive_targets.sort_by_key(|&t| distance(start, t));
 
         if positive_targets.is_empty() || search_depth > 10 {
             break;
@@ -500,14 +408,12 @@ fn explore_n_round_scores(
     real_eaten_coins: HashSet<Point>,
     enemies_position: Vec<Point>,
     pass_wall: usize,
-    prev_action_idx: usize,
-    // search_depth: usize,
 ) -> PyResult<Vec<f32>> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.insert((23, 0));
 
     // STAY, LEFT, RIGHT, DOWN, UP
-    let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
+    // let mut action_scores = vec![0.0, 0.0, 0.0, 0.0, 0.0];
 
     let eaten_coins = real_eaten_coins.clone();
 
@@ -518,8 +424,7 @@ fn explore_n_round_scores(
         _ => 3,
     };
 
-    bfs(
-        prev_action_idx,
+    let action_scores = bfs(
         start,
         search_depth,
         pass_wall,
@@ -528,7 +433,6 @@ fn explore_n_round_scores(
         &eaten_coins,
         &enemies_position,
         &banned_points,
-        &mut action_scores,
     );
 
     Ok(action_scores)
@@ -543,5 +447,6 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(catch_enemies_using_powerup, m)?)?;
     m.add_function(wrap_pyfunction!(check_stay_or_not, m)?)?;
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
+    m.add_function(wrap_pyfunction!(collect_coins_using_hull, m)?)?;
     Ok(())
 }

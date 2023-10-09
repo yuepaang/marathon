@@ -43,6 +43,7 @@ for seed in seeds:
     )
     # game loop
     while not game.is_over():
+        step_start = time.time()
         # get game state for player:
         attacker_obs = game.get_agent_states_by_player("attacker")
         defender_obs = game.get_agent_states_by_player("defender")
@@ -61,6 +62,8 @@ for seed in seeds:
         # apply actions for agents:
         attacker_actions = {_id: "STAY" for _id in attacker_obs.keys()}
         defender_actions = defender.step()
+        print(defender_actions, round(time.time() - step_start, 3))
+        print()
 
         game.apply_actions(attacker_actions=attacker_actions,
                            defender_actions=defender_actions)

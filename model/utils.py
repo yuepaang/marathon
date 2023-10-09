@@ -22,7 +22,7 @@ def print_map_state(player: Model, opp_pos: dict):
     rows, cols = zip(*coin_pos)
     map_state[rows, cols] = "$"
 
-    print("===>", player.role, player.round)
+    print("===>", player.role, player.round, player.total_score)
     rows, cols = map_state.shape
     map_state = map_state.tolist()
 
@@ -39,5 +39,3 @@ def print_map_state(player: Model, opp_pos: dict):
         for j in range(cols):
             print(map_state[i][j], end=" ")
         print()
-
-    print()

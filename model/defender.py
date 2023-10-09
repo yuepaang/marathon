@@ -18,9 +18,18 @@ class Defender(Model):
         '''
         self.round += 1
         self.score_sum()
-        print("map_score")
-        print(self.map_score.astype(int))
-        return {_id: random.choice(self.ACTIONS) for _id in self.agents}
+        exploration = {"reward": -1000, "trace": {}}
+        visited = dict()
+        for id, pos in self.my_pos.items():
+            visited[id] = set([pos])
+        next_pos = self.get_all_nearby_pos(self.my_pos, visited)
+        for pos in next_pos:
+            self.explore(pos, self.map_score, pos, 0, exploration, visited, 1,
+                         6)
+        action = dict()
+        for id, pos in exploration["trace"].items():
+            action[id] = self.map.to_action(self.my_pos[id], pos)
+        return action
 
     def score_sum(self):
         '''

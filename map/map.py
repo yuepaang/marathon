@@ -70,6 +70,9 @@ class Map:
                 nearby.append(pos)
         return nearby
 
+    def distance(self, coor1: tuple, coor2: tuple):
+        return abs(coor1[0] - coor2[0]) + abs(coor1[1] - coor2[1])
+
     def get_view_coor(self, coor: tuple, view_range: int):
         '''
         视野内格子的坐标

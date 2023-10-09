@@ -14,8 +14,12 @@ __modified__ =
 """
 
 from collections import defaultdict
+from copy import deepcopy
 import json
 import time
+
+import numpy as np
+from scipy.spatial import ConvexHull
 from game import Game, Powerup
 import random
 
@@ -31,10 +35,13 @@ global_powerup_set = set()
 global_walls_list = []
 global_portal_map = {}
 ban_idx = set()
+maze = [[0 for _ in range(24)] for _ in range(24)]
 for cell in global_map:
     x = cell["x"]
     y = cell["y"]
     cell_type = cell["type"]
+    maze[x][y] = cell_type
+
     if cell_type == "COIN":
         global_coin_set.add((x, y))
     if cell_type == "POWERUP":
@@ -44,6 +51,186 @@ for cell in global_map:
     if cell_type == "WALL":
         global_walls_list.append((x, y))
 
+
+directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+
+
+# Given position [i][j] find wall neighbors.
+# Used in constructing "wall islands" for the hider
+def neighbors(i, j, maze):
+    n = []
+    rows = len(maze)
+    cols = len(maze[0])
+    for dx, dy in directions:
+        px = j + dx
+        py = i + dy
+        if px >= 0 and px < cols and py >= 0 and py < rows and maze[py][px] == "WALL":
+            n.append((py, px))
+    return n
+
+
+# Explore graph function, for use in DFS
+def explore(i, j, visited, maze):
+    if (i, j) in visited:
+        return None
+
+    islands = [(i, j)]
+    stack = [(i, j)]
+    visited.add((i, j))
+
+    while len(stack) > 0:
+        cell = stack.pop()
+        (cell_i, cell_j) = cell
+        for neighbor in neighbors(cell_i, cell_j, maze):
+            if neighbor not in visited:
+                stack.append(neighbor)
+                visited.add(neighbor)
+                islands.append(neighbor)
+
+    return islands
+
+
+# Island class for keeping track of walled islands
+class island_class:
+    def __init__(self, points):
+        self.points = points
+        self.vertices = []
+        self.volume = 0.0
+
+    def set_vertices(self, v):
+        self.vertices = v
+
+    def set_volume(self, v):
+        self.volume = v
+
+    def get_volume(self):
+        return self.volume
+
+    def get_vertices(self):
+        return self.vertices
+
+    def __len__(self):
+        return len(self.points)
+
+    def __getitem__(self, position):
+        return self.points[position]
+
+    # So that we can hash this for use in dictionary
+    def __hash__(self):
+        return hash(self.points[0])  # Just use hash of point[0] tupple
+
+
+# Retrieve all islands (connected wall components)  of maze
+def all_islands(maze):
+    components = []
+    visited = set()
+    rows = len(maze)
+    cols = len(maze[0])
+
+    # Loop through entire maze and attempt to run explore on each wall
+    # Already-visited cells will be handled by explore()
+    for i in range(rows):
+        for j in range(cols):
+            if maze[i][j] == "WALL":
+                result = explore(i, j, visited, maze)
+                if result != None:
+                    components.append(island_class(result))
+
+    # Filter out islands with size less than five
+    # Probably could go as low 4 or 3 though
+    valid = []
+    for island in components:
+        if len(island) >= 5:
+            bad = False
+            for py, px in island:
+                if px == cols - 1 or py == rows - 1 or px == 0 or py == 0:
+                    bad = True
+                    break
+            if not bad:
+                valid.append(island)
+
+    return valid
+
+
+# Helper function to convert list of tupple positions (i,j) to numpy array
+def tupple_to_np(tups):
+    result = []
+    for i, j in tups:
+        result.append([i, j])
+
+    return np.array(result)
+
+
+# Create an outline of the every single island by adding adjacent points of all
+#   walls. This gives us points to use for the convex hull.
+# Note: This function will give you points even inside the island, but the hull
+#   thankfully handles those and gives us the outer-most outline.
+def outline(maze):
+    outlines = []
+    point_to_island = {}
+
+    for island in all_islands(maze):
+        marked = set()
+        for i, j in island:
+            for dx, dy in directions:
+                op = (dy + i, dx + j)
+                if op not in marked and maze[op[0]][op[1]] != "WALL":
+                    marked.add(op)
+                    point_to_island[op] = island
+        outlines.append(list(marked))
+
+    return (outlines, point_to_island)
+
+
+# Will return all the islands with their vertices, and outline points
+def hull(maze):
+    rows = len(maze)
+    cols = len(maze[0])
+    (outlines, point_to_island) = outline(maze)
+    corner_to_island = {}
+    islands = []
+
+    for out in outlines:
+        points = tupple_to_np(out)
+        h = ConvexHull(points)
+        v = []
+        for corner_index in h.vertices:
+            corner = out[corner_index]
+            i = corner[0]
+            j = corner[1]
+            v.append((i, j))
+
+        island = point_to_island[v[0]]
+        island.set_vertices(v)
+        island.set_volume(h.volume)
+        islands.append(island)
+
+    return islands
+
+
+# Find closest island from position (i,j) and choices of island_classes
+# Admittedly, this is the closest island in terms of the convex hull vertices,
+#   which means it not necessarily the closest. Also calculated with Euclidean
+#   distance instead of steps, so even more margin for inacurracy.
+def closest_island(i, j, choices):
+    closest = None
+    recommended_point = None
+    distance = 1 << 15
+    #    if random.randint(1,3) == 1:
+    for island in choices:
+        for corner in island.get_vertices():
+            (ci, cj) = corner
+            d = (i - ci) ** 2 + (j - cj) ** 2
+            if d < distance:
+                closest = island
+                distance = d
+                recommended_point = (ci, cj)
+    return (closest, recommended_point, distance)
+
+
+# 16 islands
+islands = hull(maze)
+print(len(islands))
 
 # pre calculate real distance
 # with open("dist.csv", "w", encoding="utf-8") as f:
@@ -78,6 +265,16 @@ def get_distance(pos1, pos2):
     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
+explore_paths_template = {
+    0: [(i, 0) for i in range(21, 0, -1)] + [(1, i) for i in range(1, 23)],
+    1: [(i, 11) for i in range(23, 0, -1)] + [(i, 12) for i in range(1, 23)],
+    2: [(12, i) for i in range(1, 23)] + [(11, i) for i in range(23, 0, -1)],
+    3: [(i, 22) for i in range(23, 0, -1)] + [(i, 23) for i in range(1, 23)],
+}
+
+explore_paths = deepcopy(explore_paths_template)
+
+
 def use_attacker(agent, enemies, powerup_clock) -> str:
     # record powerups
     if "passwall" in agent["self_agent"]["powerups"]:
@@ -86,6 +283,24 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
         passwall = 0
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
+    # if agent["self_agent"]["id"] == 2:
+    #     print("^^^^", current_pos)
+
+    if len(enemies) == 0:
+        explore_path = explore_paths[agent["self_agent"]["id"]]
+        next_point = explore_path.pop(0)
+        if len(explore_path) == 0:
+            explore_paths[agent["self_agent"]["id"]] = deepcopy(
+                explore_paths_template[agent["self_agent"]["id"]]
+            )
+        next_move = get_direction(current_pos, next_point)
+
+        if next_move == "NO":
+            explore_path.insert(0, next_point)
+            return rust_perf.get_direction(current_pos, next_point, [])
+        else:
+            return next_move
+
     # record locations have been arrived
     if current_pos in global_powerup_set:
         powerup_clock[current_pos] = 1
@@ -93,13 +308,12 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
     cancel_key = []
     for powerup, clock in powerup_clock.items():
         if clock == 12:
-            print(powerup_clock)
-            raise Exception("e")
             cancel_key.append(powerup)
     for k in cancel_key:
         del powerup_clock[k]
 
     path = rust_perf.catch_enemies_using_powerup(
+        agent["self_agent"]["id"],
         current_pos,
         passwall,
         enemies,
@@ -154,7 +368,7 @@ def use_defender(
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
     # scatter first
-    if step < 7:
+    if step < 8:
         if agent_id not in defender_scatter:
             return rust_perf.get_direction(
                 current_pos,
@@ -250,6 +464,7 @@ def get_direction(curr, next):
             return "DOWN"
         elif true_next[1] == curr[1] - 1:
             return "UP"
+    return "NO"
 
 
 # load map
@@ -259,8 +474,6 @@ game = Game(map)
 
 
 # init game
-# seed = random.randint(0, 10000)
-# seed = 8878
 win_count = 0
 attacker_score = 0
 defender_score = 0
@@ -282,6 +495,25 @@ for seed in seeds:
 
         attacker_locations = set()
         defender_locations = set()
+        for k, v in attacker_state.items():
+            other_agent_list = v["other_agents"]
+            for other_agent in other_agent_list:
+                if other_agent["role"] == "ATTACKER":
+                    attacker_locations.add((other_agent["x"], other_agent["y"]))
+                # elif other_agent["invulnerability_duration"] == 0:
+                else:
+                    defender_locations.add((other_agent["x"], other_agent["y"]))
+
+        # attacker_actions = {
+        #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
+        # }
+        attacker_actions = {
+            _id: use_attacker(attacker_state[_id], list(defender_locations), {})
+            for _id in attacker_state.keys()
+        }
+
+        attacker_locations = set()
+        defender_locations = set()
         for k, v in defender_state.items():
             other_agent_list = v["other_agents"]
             for other_agent in other_agent_list:
@@ -290,28 +522,20 @@ for seed in seeds:
                 elif other_agent["invulnerability_duration"] == 0:
                     defender_locations.add((other_agent["x"], other_agent["y"]))
 
-        attacker_actions = {
-            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
-        }
-        # attacker_actions = {
-        #     _id: use_attacker(attacker_state[_id], list(defender_locations), {})
-        #     for _id in attacker_state.keys()
-        # }
-
         defender_actions = {
             _id: random.choice(ACTIONS) for _id in defender_state.keys()
         }
-        defender_actions = {
-            _id: use_defender(
-                defender_state[_id],
-                eatten_set,
-                step,
-                powerup_clock,
-                list(attacker_locations),
-                defender_scatter,
-            )
-            for _id in defender_state.keys()
-        }
+        # defender_actions = {
+        #     _id: use_defender(
+        #         defender_state[_id],
+        #         eatten_set,
+        #         step,
+        #         powerup_clock,
+        #         list(attacker_locations),
+        #         defender_scatter,
+        #     )
+        #     for _id in defender_state.keys()
+        # }
 
         game.apply_actions(
             attacker_actions=attacker_actions, defender_actions=defender_actions

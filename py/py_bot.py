@@ -1,3 +1,4 @@
+from copy import deepcopy
 import json
 import argparse
 import random
@@ -49,7 +50,7 @@ def get_direction(curr, next):
         return "ERROR"
 
 
-def attack(agent, enemies, powerup_clock) -> str:
+def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template) -> str:
     # record powerups
     if "passwall" in agent.get_self_agent().powerups:
         passwall = agent.get_self_agent().powerups["passwall"]
@@ -57,6 +58,19 @@ def attack(agent, enemies, powerup_clock) -> str:
         passwall = 0
 
     current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
+    agent_id = agent.get_self_agent().id
+
+    if len(enemies) == 0:
+        explore_path = explore_paths[agent_id]
+        next_point = explore_path.pop(0)
+        if len(explore_path) == 0:
+            explore_paths[agent_id] = deepcopy(explore_paths_template[agent_id])
+        next_move = get_direction(current_pos, next_point)
+        if next_move == "NO":
+            explore_path.insert(0, next_point)
+            return rust_perf.get_direction(current_pos, next_point, [])
+        else:
+            return next_move
 
     # record locations have been arrived
     if current_pos in global_powerup_set:
@@ -70,6 +84,7 @@ def attack(agent, enemies, powerup_clock) -> str:
         del powerup_clock[k]
 
     path = rust_perf.catch_enemies_using_powerup(
+        agent_id,
         current_pos,
         passwall,
         enemies,
@@ -199,6 +214,15 @@ class RealGame(marathon.Game):
         self.powerup_clock = {}
         self.defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
 
+        self.explore_paths_template = {
+            0: [(i, 0) for i in range(21, 0, -1)] + [(1, i) for i in range(1, 23)],
+            1: [(i, 11) for i in range(23, 0, -1)] + [(i, 12) for i in range(1, 23)],
+            2: [(12, i) for i in range(1, 23)] + [(11, i) for i in range(23, 0, -1)],
+            3: [(i, 22) for i in range(23, 0, -1)] + [(i, 23) for i in range(1, 23)],
+        }
+
+        self.explore_paths = deepcopy(self.explore_paths_template)
+
     def on_game_start(self, data):
         self.step = 0
         self.eaten_set = set()
@@ -219,7 +243,7 @@ class RealGame(marathon.Game):
                     attacker_locations.append(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
-                elif other_agent.invulnerability_duration == 0:
+                else:
                     defender_locations.append(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
@@ -236,7 +260,11 @@ class RealGame(marathon.Game):
                 )
             else:
                 action[agent_id] = attack(
-                    agent_state, defender_locations, self.powerup_clock
+                    agent_state,
+                    defender_locations,
+                    self.powerup_clock,
+                    self.explore_paths,
+                    self.explore_paths_template,
                 )
         return action
 

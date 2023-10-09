@@ -284,6 +284,13 @@ pub fn a_star_search_power(
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     // valueless position
     banned_points.insert((23, 0));
+    // TODO: try
+    for p in conf::PORTALS.iter() {
+        banned_points.insert(*p);
+    }
+    for p in conf::PORTALS_DEST.iter() {
+        banned_points.insert(*p);
+    }
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {

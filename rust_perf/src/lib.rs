@@ -5,7 +5,12 @@
  * Last Modified Date: 26.09.2023
  * Last Modified By  : Yue Peng <yuepaang@gmail.com>
  */
-use std::{cmp::Ordering, collections::HashSet};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
 use algo::bfs;
 use pyo3::prelude::*;
@@ -472,6 +477,39 @@ fn explore_n_round_scores(
     Ok(action_scores)
 }
 
+#[pyfunction]
+fn explore(
+    agents: Vec<usize>,
+    positions: Vec<HashMap<usize, Point>>,
+    map_score: Vec<Vec<f32>>,
+    visited: HashMap<usize, HashSet<Point>>,
+    max_step: usize,
+) -> Vec<f32> {
+    let result = Arc::new(Mutex::new(Vec::new()));
+    for _ in positions.iter() {
+        let mut result = result.lock().unwrap();
+        result.push(0.0);
+    }
+    println!("agents: {:?} pos_len: {}", agents, positions.len());
+    positions.par_iter().enumerate().for_each(|(idx, pos)| {
+        let mut max_reward = vec![0.0];
+
+        algo::dfs(
+            &agents,
+            &pos,
+            &map_score,
+            0.0,
+            &visited,
+            0,
+            max_step,
+            &mut max_reward,
+        );
+        let mut result = result.lock().unwrap();
+        result[idx] = max_reward[0];
+    });
+    Arc::try_unwrap(result).unwrap().into_inner().unwrap()
+}
+
 #[pymodule]
 fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_direction, m)?)?;
@@ -482,5 +520,6 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_stay_or_not, m)?)?;
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_hull, m)?)?;
+    m.add_function(wrap_pyfunction!(explore, m)?)?;
     Ok(())
 }

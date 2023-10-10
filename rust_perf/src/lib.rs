@@ -478,13 +478,81 @@ fn explore_n_round_scores(
 }
 
 #[pyfunction]
+fn collect_coins_parallel(
+    mut start: Point,
+    mut eaten_coins: HashSet<Point>,
+    mut pass_wall: usize,
+) -> PyResult<(Vec<Point>, usize)> {
+    let origin = start.clone();
+
+    let mut search_depth = 0;
+    let mut agent_coins_score = 0;
+    let mut total_path = Vec::new();
+
+    // find the potential move with greatest coin score
+    loop {
+        search_depth += 1;
+        let mut positive_targets: Vec<Point> = conf::COINS
+            .par_iter()
+            .chain(conf::POWERUPS.par_iter())
+            .filter(|x| !eaten_coins.contains(&x))
+            .map(|x| (x.0, x.1))
+            .collect();
+        positive_targets.sort_by_key(|&t| distance(start, t));
+
+        if search_depth > 10 {
+            break;
+        }
+
+        let mut paths: Vec<Vec<Point>> = positive_targets
+            .par_iter()
+            .filter_map(|&target| algo::a_star_search_power(start, target, vec![], pass_wall))
+            .collect();
+
+        // TODO: away from potential enemies
+        if paths.is_empty() {
+            // println!("NO TARGET! current position: {:?}", start);
+            paths = conf::DEFENDER_BASE
+                .par_iter()
+                .chain(conf::ATTACKER_BASE.par_iter())
+                .filter_map(|&p| algo::a_star_search_power(start, p, vec![], pass_wall))
+                .collect();
+        }
+
+        if paths.is_empty() {
+            total_path.push(origin);
+            break;
+        }
+
+        let sp = paths
+            .iter()
+            .filter(|path| path.len() > 0)
+            .min_by_key(|path| path.len())
+            .unwrap();
+
+        total_path.extend_from_slice(&sp[..sp.len()]);
+
+        start = *sp.last().unwrap();
+        eaten_coins.insert((start.0, start.1));
+        agent_coins_score += 2;
+        pass_wall -= sp.len();
+    }
+
+    if total_path.len() == 0 {
+        println!("no total path generated.")
+    }
+
+    Ok((total_path, agent_coins_score))
+}
+
+#[pyfunction]
 fn explore(
     agents: Vec<usize>,
     positions: Vec<HashMap<usize, Point>>,
     map_score: Vec<Vec<f32>>,
     visited: HashMap<usize, HashSet<Point>>,
     max_step: usize,
-) -> Vec<f32> {
+) -> PyResult<Vec<f32>> {
     let result = Arc::new(Mutex::new(Vec::new()));
     for _ in positions.iter() {
         let mut result = result.lock().unwrap();
@@ -507,7 +575,7 @@ fn explore(
         let mut result = result.lock().unwrap();
         result[idx] = max_reward[0];
     });
-    Arc::try_unwrap(result).unwrap().into_inner().unwrap()
+    Ok(Arc::try_unwrap(result).unwrap().into_inner().unwrap())
 }
 
 #[pymodule]

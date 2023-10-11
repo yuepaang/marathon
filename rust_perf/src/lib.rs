@@ -99,22 +99,37 @@ fn get_direction_path(
 #[pyfunction]
 fn check_stay_or_not(
     start: Point,
-    enemies_position: Vec<Point>,
+    mut enemies_position: Vec<Point>,
     pass_wall: usize,
+    eaten_coins: HashSet<Point>,
 ) -> PyResult<String> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    let coin_set: HashSet<Point> = conf::COINS
+        .par_iter()
+        .filter(|&c| !eaten_coins.contains(c))
+        .map(|&c| (c.0, c.1))
+        .collect();
 
     // Calculate the overall direction if the cell is further away from all enemies
-    for &(i, j, direction) in &[
-        (-1, 0, "LEFT"),
-        (1, 0, "RIGHT"),
-        (0, 1, "DOWN"),
-        (0, -1, "UP"),
+    for &(i, j, direction, consider_coin) in &[
+        (-1, 0, "LEFT", true),
+        (1, 0, "RIGHT", true),
+        (0, 1, "DOWN", true),
+        (0, -1, "UP", true),
+        (-1, 0, "LEFT", false),
+        (1, 0, "RIGHT", false),
+        (0, 1, "DOWN", false),
+        (0, -1, "UP", false),
     ] {
         let mut all_away = true;
         let mut next = (start.0 + i, start.1 + j);
         if algo::check_out_of_bound(next) {
             continue;
+        }
+        if consider_coin {
+            if !coin_set.contains(&next) {
+                continue;
+            }
         }
 
         // PORTAL MOVE
@@ -131,14 +146,14 @@ fn check_stay_or_not(
             }
         }
 
-        for enemy in enemies_position.clone() {
+        for enemy in &enemies_position {
             // let new_path = algo::a_star_search(next, enemy).unwrap();
             // let old_path = algo::a_star_search(start, enemy).unwrap();
             // if new_path.len() <= old_path.len() {
             //     all_away = false;
             // }
-            let new_path = distance(next, enemy);
-            let old_path = distance(start, enemy);
+            let new_path = distance(next, *enemy);
+            let old_path = distance(start, *enemy);
             if new_path <= old_path {
                 all_away = false;
             }
@@ -148,8 +163,15 @@ fn check_stay_or_not(
         }
     }
 
+    enemies_position.sort_by_key(|&e| distance(start, e));
+
     if enemies_position.len() == 1 && distance(start, enemies_position[0]) == 2 {
         return Ok("STAY".to_string());
+    }
+    if enemies_position.len() == 2 {
+        if distance(start, enemies_position[0]) == 2 && distance(start, enemies_position[1]) > 2 {
+            return Ok("STAY".to_string());
+        }
     }
 
     let mut is_diag = true;
@@ -171,18 +193,18 @@ fn check_stay_or_not(
     ] {
         let next = (start.0 + i, start.1 + j);
         if algo::check_valid_move(start) < algo::check_valid_move(next) {
-            println!(
-                "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
-                start, enemies_position, next
-            );
+            // println!(
+            //     "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
+            //     start, enemies_position, next
+            // );
             return Ok(direction.to_string());
         }
     }
 
-    println!(
-        "NO STRATEGY! current: {:?} enemies: {:?}",
-        start, enemies_position
-    );
+    // println!(
+    //     "NO STRATEGY! current: {:?} enemies: {:?}",
+    //     start, enemies_position
+    // );
 
     // TODO: stay?
     Ok("STAY".to_string())

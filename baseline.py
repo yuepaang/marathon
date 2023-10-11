@@ -428,12 +428,12 @@ def use_defender(agent, eaten_set, step, powerup_clock, defender_scatter) -> str
     # strategy one (corner)
     if (len(attacker_location) >= 1 and shield < 3) or has_sword:
         next_move = rust_perf.check_stay_or_not(
-            current_pos, attacker_location, passwall
+            current_pos, attacker_location, passwall, eaten_set
         )
         # print(agent_id, current_pos, attacker_location, next_move, passwall)
         return next_move
 
-    if agent_id in [4, 7]:
+    if agent_id in [4, 5, 7]:
         # print(
         #     current_pos, agent["self_agent"]["score"], len(eaten_set), passwall, shield
         # )
@@ -477,7 +477,7 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [56232]
+# seeds = [268836]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
@@ -511,19 +511,19 @@ for seed in seeds:
             for _id in attacker_state.keys()
         }
 
-        defender_actions = {
-            _id: random.choice(ACTIONS) for _id in defender_state.keys()
-        }
         # defender_actions = {
-        #     _id: use_defender(
-        #         defender_state[_id],
-        #         eatten_set,
-        #         step,
-        #         powerup_clock,
-        #         defender_scatter,
-        #     )
-        #     for _id in defender_state.keys()
+        #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
         # }
+        defender_actions = {
+            _id: use_defender(
+                defender_state[_id],
+                eatten_set,
+                step,
+                powerup_clock,
+                defender_scatter,
+            )
+            for _id in defender_state.keys()
+        }
 
         game.apply_actions(
             attacker_actions=attacker_actions, defender_actions=defender_actions

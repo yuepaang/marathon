@@ -173,11 +173,11 @@ def defend(
     # strategy one (corner)
     if (len(attacker_location) >= 1 and shield <= 3) or has_sword:
         next_move = rust_perf.check_stay_or_not(
-            current_pos, attacker_location, passwall
+            current_pos, attacker_location, passwall, eaten_set
         )
         return next_move
 
-    if agent.get_self_agent().id in [4, 7]:
+    if agent.get_self_agent().id in [4, 5, 7]:
         path = rust_perf.collect_coins_using_hull(current_pos, eaten_set)
         if len(path) > 0:
             return get_direction(current_pos, path[0])

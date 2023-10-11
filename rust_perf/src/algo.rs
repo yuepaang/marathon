@@ -216,7 +216,6 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
             (0, -1, Direction::Up),
         ] {
             let mut next = (point.0 + i, point.1 + j);
-            let true_next = next.clone();
             if check_out_of_bound(next) {
                 continue;
             }
@@ -243,21 +242,6 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
                     point: next,
                     passwall: 0,
                 });
-            }
-
-            if true_next == end {
-                came_from.insert(true_next, (direction, point));
-                let mut path: Vec<Point> = Vec::new();
-                let mut current = end;
-
-                while let Some(&(direction, parent)) = came_from.get(&current) {
-                    let next_pos: Point = direction.get_next_pos(parent);
-                    path.push(next_pos);
-                    current = parent;
-                }
-
-                path.reverse();
-                return Some(path);
             }
         }
 
@@ -751,4 +735,15 @@ pub fn bfs(
         }
     }
     action_scores
+}
+
+pub fn check_valid_move(point: Point) -> usize {
+    let mut count = 0;
+    for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
+        let next = (point.0 + i, point.1 + j);
+        if !conf::WALLS.contains(&next) {
+            count += 1;
+        }
+    }
+    count
 }

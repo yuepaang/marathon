@@ -30,24 +30,21 @@ def get_distance(pos1, pos2):
 
 
 def get_direction(curr, next):
-    if curr[1] == next[1]:
-        if next[0] == curr[0]:
+    true_next = next
+
+    if curr[1] == true_next[1]:
+        if true_next[0] == curr[0]:
             return "STAY"
-        elif next[0] == curr[0] + 1:
+        elif true_next[0] == curr[0] + 1:
             return "RIGHT"
-        elif next[0] == curr[0] - 1:
+        elif true_next[0] == curr[0] - 1:
             return "LEFT"
-        else:
-            return "ERROR"
-    elif curr[0] == next[0]:
-        if next[1] == curr[1] + 1:
+    elif curr[0] == true_next[0]:
+        if true_next[1] == curr[1] + 1:
             return "DOWN"
-        elif next[1] == curr[1] - 1:
+        elif true_next[1] == curr[1] - 1:
             return "UP"
-        else:
-            return "ERROR"
-    else:
-        return "ERROR"
+    return "NO"
 
 
 def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template) -> str:
@@ -57,7 +54,10 @@ def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template)
     else:
         passwall = 0
 
-    current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
+    current_pos = (
+        agent.get_self_agent().get_pos()["x"],
+        agent.get_self_agent().get_pos()["y"],
+    )
     agent_id = agent.get_self_agent().id
 
     if len(enemies) == 0:
@@ -65,6 +65,7 @@ def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template)
         next_point = explore_path.pop(0)
         if len(explore_path) == 0:
             explore_paths[agent_id] = deepcopy(explore_paths_template[agent_id])
+
         next_move = get_direction(current_pos, next_point)
         if next_move == "NO":
             explore_path.insert(0, next_point)
@@ -84,7 +85,6 @@ def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template)
         del powerup_clock[k]
 
     path = rust_perf.catch_enemies_using_powerup(
-        agent_id,
         current_pos,
         passwall,
         enemies,
@@ -103,10 +103,12 @@ def defend(
     eaten_set,
     step,
     powerup_clock,
-    attacker_location,
     defender_scatter,
 ) -> str:
-    current_pos = (agent.get_pos()["x"], agent.get_pos()["y"])
+    current_pos = (
+        agent.get_self_agent().get_pos()["x"],
+        agent.get_self_agent().get_pos()["y"],
+    )
 
     # powerup within view
     for powerup in agent.get_powerups():
@@ -158,11 +160,13 @@ def defend(
 
     other_agent_list = agent.get_other_agents()
     allies_location = []
+    attacker_location = []
     has_sword = False
     for other_agent in other_agent_list:
         if other_agent.get_role() == "DEFENDER":
             allies_location.append((other_agent.x, other_agent.y))
         else:
+            attacker_location.append((other_agent.x, other_agent.y))
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
@@ -173,10 +177,7 @@ def defend(
         )
         return next_move
 
-    if agent.get_self_agent().id == 4:
-        # print(
-        #     current_pos, agent["self_agent"]["score"], len(eaten_set), passwall, shield
-        # )
+    if agent.get_self_agent().id in [4, 7]:
         path = rust_perf.collect_coins_using_hull(current_pos, eaten_set)
         if len(path) > 0:
             return get_direction(current_pos, path[0])
@@ -230,7 +231,6 @@ class RealGame(marathon.Game):
 
     def on_game_state(self, data: marathon.MessageGameState):
         self.step += 1
-        action = {}
 
         # TODO: powerup
         # prepare state
@@ -248,6 +248,7 @@ class RealGame(marathon.Game):
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
 
+        action = {}
         for agent_id, agent_state in data.get_states().items():
             if agent_state.get_role() == "DEFENDER":
                 action[agent_id] = defend(
@@ -255,7 +256,6 @@ class RealGame(marathon.Game):
                     self.eaten_set,
                     self.step,
                     self.powerup_clock,
-                    attacker_locations,
                     self.defender_scatter,
                 )
             else:

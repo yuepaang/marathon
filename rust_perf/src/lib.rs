@@ -112,19 +112,19 @@ fn check_stay_or_not(
         (0, -1, "UP"),
     ] {
         let mut all_away = true;
-        let next = (start.0 + i, start.1 + j);
+        let mut next = (start.0 + i, start.1 + j);
         if algo::check_out_of_bound(next) {
             continue;
         }
 
         // PORTAL MOVE
-        // let index = conf::PORTALS
-        //     .iter()
-        //     .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-        //     .unwrap_or(99);
-        // if index != 99 {
-        //     next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-        // }
+        let index = conf::PORTALS
+            .iter()
+            .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+            .unwrap_or(99);
+        if index != 99 {
+            next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+        }
         if pass_wall <= 0 {
             if banned_points.contains(&next) {
                 continue;
@@ -132,11 +132,14 @@ fn check_stay_or_not(
         }
 
         for enemy in enemies_position.clone() {
-            // println!("next: {:?}, start: {:?}, enemy: {:?}", next, start, enemy);
-            let new_path = algo::a_star_search(next, enemy).unwrap();
-            let old_path = algo::a_star_search(start, enemy).unwrap();
-            // println!("new_path: {:?}, old_path: {:?}", new_path, old_path);
-            if new_path.len() <= old_path.len() {
+            // let new_path = algo::a_star_search(next, enemy).unwrap();
+            // let old_path = algo::a_star_search(start, enemy).unwrap();
+            // if new_path.len() <= old_path.len() {
+            //     all_away = false;
+            // }
+            let new_path = distance(next, enemy);
+            let old_path = distance(start, enemy);
+            if new_path <= old_path {
                 all_away = false;
             }
         }
@@ -159,6 +162,27 @@ fn check_stay_or_not(
     if is_diag {
         return Ok("STAY".to_string());
     }
+
+    for &(i, j, direction) in &[
+        (-1, 0, "LEFT"),
+        (1, 0, "RIGHT"),
+        (0, 1, "DOWN"),
+        (0, -1, "UP"),
+    ] {
+        let next = (start.0 + i, start.1 + j);
+        if algo::check_valid_move(start) < algo::check_valid_move(next) {
+            println!(
+                "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
+                start, enemies_position, next
+            );
+            return Ok(direction.to_string());
+        }
+    }
+
+    println!(
+        "NO STRATEGY! current: {:?} enemies: {:?}",
+        start, enemies_position
+    );
 
     // TODO: stay?
     Ok("STAY".to_string())
@@ -210,95 +234,12 @@ fn collect_coins(
 // BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn catch_enemies_using_powerup(
-    agent_id: usize,
     start: Point,
     pass_wall: usize,
     mut enemies: Vec<Point>,
 ) -> PyResult<Vec<Point>> {
-    let origin = start.clone();
-
-    // if enemies.is_empty() {
-    //     let mut explore_path = Vec::new();
-
-    //     let mut targets: Vec<Point> = Vec::new();
-    //     match agent_id {
-    //         0 => {
-    //             for i in 0..12 {
-    //                 for j in 0..12 {
-    //                     let target = (i, j);
-    //                     if conf::WALLS.contains(&target) || start == target {
-    //                         continue;
-    //                     }
-    //                     targets.push(target);
-    //                 }
-    //             }
-    //         }
-    //         1 => {
-    //             for i in 0..12 {
-    //                 for j in 12..24 {
-    //                     let target = (i, j);
-    //                     if conf::WALLS.contains(&target) || start == target {
-    //                         continue;
-    //                     }
-    //                     targets.push(target);
-    //                 }
-    //             }
-    //         }
-    //         2 => {
-    //             for i in 12..24 {
-    //                 for j in 12..24 {
-    //                     let target = (i, j);
-    //                     if conf::WALLS.contains(&target) || start == target {
-    //                         continue;
-    //                     }
-    //                     targets.push(target);
-    //                 }
-    //             }
-    //         }
-    //         3 => {
-    //             for i in 12..24 {
-    //                 for j in 0..12 {
-    //                     let target = (i, j);
-    //                     if conf::WALLS.contains(&target) || start == target {
-    //                         continue;
-    //                     }
-    //                     targets.push(target);
-    //                 }
-    //             }
-    //         }
-    //         _ => {}
-    //     }
-
-    //     let mut hull_points = algo::graham_hull(targets);
-    //     hull_points.sort_by_key(|&p| distance(start, p));
-    //     // println!("start: {:?},targets: {:?}", start, targets);
-    //     let target_path = algo::a_star_search(start, hull_points[0]).unwrap();
-
-    //     if !target_path.is_empty() {
-    //         explore_path.extend_from_slice(&target_path);
-    //     }
-
-    //     return Ok(explore_path);
-    // } else {
-    //     let mut chase_path = Vec::new();
-    //     enemies.sort_by_key(|&e| distance(origin, e));
-    //     if enemies[0] == start {
-    //         for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
-    //             let new_hp = (enemies[0].0 + i, enemies[0].1 + j);
-    //             if !conf::WALLS.contains(&new_hp) {
-    //                 chase_path.push(new_hp);
-    //                 break;
-    //             }
-    //         }
-    //     } else {
-    //         chase_path =
-    //             algo::a_star_search_power(origin, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
-    //     }
-    //     return Ok(chase_path);
-    // }
-
     let mut chase_path = Vec::new();
-    enemies.sort_by_key(|&e| distance(origin, e));
+    enemies.sort_by_key(|&e| distance(start, e));
     if enemies[0] == start {
         for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
             let new_hp = (enemies[0].0 + i, enemies[0].1 + j);
@@ -309,7 +250,7 @@ fn catch_enemies_using_powerup(
         }
     } else {
         chase_path =
-            algo::a_star_search_power(origin, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
+            algo::a_star_search_power(start, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
     }
     return Ok(chase_path);
 }
@@ -397,7 +338,9 @@ fn collect_coins_using_powerup(
 
         let mut paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
-            .filter_map(|&target| algo::a_star_search_power(start, target, vec![], pass_wall))
+            .filter_map(|&target| {
+                algo::a_star_search_power(start, target, allies_position.clone(), pass_wall)
+            })
             .collect();
 
         // TODO: away from potential enemies

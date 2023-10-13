@@ -17,6 +17,7 @@ from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
 import json
+import math
 import time
 from typing import Dict, List, Union
 
@@ -44,13 +45,14 @@ with open("map.json") as f:
 
 
 class Point:
-    def __init__(self, _x: int, _y: int):
+    def __init__(self, _x: int, _y: int, _point: int):
         self.x = _x  # type: int
         self.y = _y  # type: int
         self.next = dict()  # type: Dict[DIRECTION, Union[None, Point]]
         self.wall = False  # type: bool
         self.portal = None  # type: Union[None, Point]
         self.name = ""
+        self.point = _point
 
     def __repr__(self):
         ret = dict()
@@ -75,11 +77,22 @@ def floyd(node_num, dist, path, inf=9999):
     return dist
 
 
+def max_xy(p1: Point, p2: Point):
+    return max(abs(p1.x - p2.x), abs(p1.y - p2.y))
+
+
 class Path:
-    def __init__(self, _maps: Dict[int, Dict[int, Point]], _width: int, _height: int):
+    def __init__(
+        self,
+        _maps: Dict[int, Dict[int, Point]],
+        _width: int,
+        _height: int,
+        _vision: int,
+    ):
         self.maps = _maps  # type: Dict[int, Dict[int, Point]]
         self.width = _width  # type: int
         self.height = _height  # type: int
+        self.vision = _vision  # type: int
         self.node_num = self.width * self.height  # type: int
         self.inf = 9999
         self.dist = [
@@ -102,6 +115,31 @@ class Path:
             self.node_num, np.array(self.dist), np.array(self.path)
         ).tolist()
 
+        # cal danger index
+        self.is_danger_index = [False for _ in range(self.node_num)]
+        self.is_eat_danger_index = [False for _ in range(self.node_num)]
+        for i in range(self.node_num):
+            p = self.to_point(i)
+            for d in [
+                DIRECTION.UP,
+                DIRECTION.DOWN,
+                DIRECTION.LEFT,
+                DIRECTION.RIGHT,
+                DIRECTION.STAY,
+            ]:
+                if max_xy(p, p.next[d]) > self.vision:
+                    self.is_danger_index[self.to_index(p.next[d])] = True
+                    for dd in [
+                        DIRECTION.UP,
+                        DIRECTION.DOWN,
+                        DIRECTION.LEFT,
+                        DIRECTION.RIGHT,
+                        DIRECTION.STAY,
+                    ]:
+                        self.is_eat_danger_index[
+                            self.to_index(p.next[d].next[dd])
+                        ] = True
+
     def get_cost(self, start: Point, end: Point):
         return self.dist[self.to_index(start)][self.to_index(end)]
 
@@ -113,6 +151,9 @@ class Path:
 
     def to_index(self, point: Point) -> int:
         return point.x + point.y * self.width
+
+    def to_index_xy(self, x: int, y: int) -> int:
+        return x + y * self.width
 
     def floyd(self):
         for k in range(self.node_num):
@@ -139,11 +180,50 @@ class MapInfo:
             if x not in self.maps:
                 self.maps[x] = dict()
             for y in range(self.height):
-                self.maps[x][y] = Point(x, y)
+                self.maps[x][y] = Point(x, y, 0)
         self.load_map()
         self.construct_map()
         if calculate_path:
-            self.path = Path(self.maps, self.width, self.height)
+            self.path = Path(self.maps, self.width, self.height, self.vision)
+
+        self.vision_grids = [[] for _ in range(self.path.node_num)]
+        self.vision_grids_1 = [[] for _ in range(self.path.node_num)]
+        self.vision_grids_3 = [[] for _ in range(self.path.node_num)]
+        self.vision_grids_cross = [[] for _ in range(self.path.node_num)]
+
+        for n in range(self.path.node_num):
+            p = self.path.to_point(n)
+            x = p.x
+            y = p.y
+            for i in range(
+                max(x - self.vision, 0), min(x + self.vision, self.width - 1) + 1
+            ):
+                for j in range(
+                    max(y - self.vision, 0), min(y + self.vision, self.height - 1) + 1
+                ):
+                    self.vision_grids[n].append(self.path.to_index_xy(i, j))
+
+            for i in range(max(x - 1, 0), min(x + 1, self.width - 1) + 1):
+                for j in range(max(y - 1, 0), min(y + 1, self.height - 1) + 1):
+                    self.vision_grids_3[n].append(self.path.to_index_xy(i, j))
+
+            for d in [DIRECTION.UP, DIRECTION.DOWN, DIRECTION.LEFT, DIRECTION.RIGHT]:
+                self.vision_grids_1[n].append(
+                    self.path.to_index(self.path.to_point(n).next[d])
+                )
+
+            self.vision_grids_cross[n].extend(
+                [
+                    self.path.to_index_xy(x, y),
+                    self.path.to_index_xy(max(x - 1, 0), y),
+                    self.path.to_index_xy(min(x + 1, self.width), y),
+                    self.path.to_index_xy(x, max(y - 1, 0)),
+                    self.path.to_index_xy(x, min(y + 1, self.height)),
+                ]
+            )
+
+        # for idx in self.vision_grids[0]:
+        #     print(self.path.to_point(idx).__dict__)
 
     def set_wall(self, x: int, y: int):
         self.maps[x][y].wall = True
@@ -183,17 +263,24 @@ class MapInfo:
     def load_map(self):
         wormholes = dict()  # type: Dict[str, List[int]]
         for cell in self.map_json["map"]:
+            x = cell["x"]
+            y = cell["y"]
             if cell["type"] == "WALL":
-                self.set_wall(cell["x"], cell["y"])
+                self.set_wall(x, y)
             elif cell["type"] == "PORTAL":
                 name = cell["name"]
                 if name not in wormholes:
                     wormholes[name] = [
-                        cell["x"],
-                        cell["y"],
+                        x,
+                        y,
                         cell["pair"]["x"],
                         cell["pair"]["y"],
                     ]
+            elif cell["type"] == "COIN":
+                self.maps[x][y].point = 2
+            # TODO: point for powerup
+            elif cell["type"] == "POWERUP":
+                self.maps[x][y].point = 6
         for name in wormholes:
             w = wormholes[name]
             assert len(w) == 4
@@ -225,6 +312,80 @@ print(map_info.maps[0][0].next)
 print(map_info.maps[0][1].next)
 print(map_info.path.get_cost(map_info.maps[0][23], map_info.maps[23][0]))
 print("map_info done")
+
+
+class Naga:
+    def __init__(self, map_info: MapInfo, agent_states, other_agents) -> None:
+        self.map_info = map_info
+        self.agent_states = agent_states
+        self.other_agents = other_agents
+        self.power_scores = [0.0 for _ in range(map_info.path.node_num)]
+        self.env_score_limit = [0.0 for _ in range(map_info.path.node_num)]
+        self.visit_time = [0 for _ in range(map_info.path.node_num)]
+        for i in range(map_info.path.node_num):
+            p = map_info.path.to_point(i)
+            if p.wall is False and p.portal is False:
+                self.env_score_limit[i] = 1.0 / ((2 * map_info.vision + 1) ** 2)
+        self.env_score = self.env_score_limit
+
+    def update_score(self, step: int):
+        for i in range(self.map_info.path.node_num):
+            if step - self.visit_time[i] > 15:
+                self.env_score[i] = min(
+                    self.env_score_limit[i] / 25 * (step - 15 - self.visit_time[i]),
+                    self.env_score_limit[i],
+                )
+        for _, agent_state in self.agent_states.items():
+            for n in self.map_info.vision_grids[
+                self.map_info.path.to_index_xy(
+                    agent_state["self_agent"]["x"], agent_state["self_agent"]["y"]
+                )
+            ]:
+                self.power_scores[n] = 0.0
+                self.env_score[n] = 0.0
+                self.visit_time[n] = step
+
+            # TODO: already know the coin location
+            for powerup in agent_state["powerups"]:
+                powerup_index = self.map_info.path.to_index_xy(
+                    powerup["x"], powerup["y"]
+                )
+                p = self.map_info.path.to_point(powerup_index)
+                self.env_score_limit[powerup_index] = p.point / self.map_info.vision
+                self.power_scores[powerup_index] = p.point
+
+            for coin in agent_state["coins"]:
+                coin_index = self.map_info.path.to_index_xy(coin["x"], coin["y"])
+                p = self.map_info.path.to_point(coin_index)
+                self.env_score_limit[coin_index] = p.point / self.map_info.vision
+                self.power_scores[coin_index] = p.point
+
+
+def search_enemy(map_info: MapInfo, all_danger):
+    map_danger: Dict[int, float] = {}
+    for c in range(4):
+        max_score = float("-inf")
+        max_score_loc = 0
+
+        for n in range(map_info.path.node_num):
+            point = map_info.path.to_point(n)
+            if point.wall:
+                continue
+
+            score = 0.0
+            for g in map_info.vision_grids[n]:
+                score += all_danger[g]
+
+            if score > max_score:
+                max_score = score
+                max_score_loc = n
+
+        if not math.isclose(max_score, 1e-6):  # replace 'equal_double' function
+            map_danger[max_score_loc] = max_score
+            print(f"max_score_loc: {max_score_loc} max_score: {max_score}")
+            point = map_info.path.to_point(max_score_loc)
+            for g in map_info.vision_grids[map_info.path.to_index(point)]:
+                all_danger[g] = 0.0
 
 
 directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
@@ -408,176 +569,10 @@ islands = hull(map_info.maps)
 print(len(islands))
 
 
-def use_attacker(agent, enemies, powerup_clock) -> str:
-    # record powerups
-    if "passwall" in agent["self_agent"]["powerups"]:
-        passwall = agent["self_agent"]["powerups"]["passwall"]
-    else:
-        passwall = 0
-    current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
-    # if agent["self_agent"]["id"] == 1:
-    #     print("id: 1", current_pos, enemies)
-
-    if len(enemies) == 0:
-        explore_path = explore_paths[agent["self_agent"]["id"]]
-        next_point = explore_path.pop(0)
-        if len(explore_path) == 0:
-            explore_paths[agent["self_agent"]["id"]] = deepcopy(
-                explore_paths_template[agent["self_agent"]["id"]]
-            )
-
-        next_move = get_direction(current_pos, next_point)
-        if next_move == "NO":
-            explore_path.insert(0, next_point)
-            next_move = rust_perf.get_direction(current_pos, next_point, [])
-            return next_move
-        else:
-            return next_move
-
-    # record locations have been arrived
-    if current_pos in global_powerup_set:
-        powerup_clock[current_pos] = 1
-
-    cancel_key = []
-    for powerup, clock in powerup_clock.items():
-        if clock == 12:
-            cancel_key.append(powerup)
-    for k in cancel_key:
-        del powerup_clock[k]
-
-    path = rust_perf.catch_enemies_using_powerup(
-        current_pos,
-        passwall,
-        enemies,
-    )
-    if len(path) == 0:
-        print(
-            agent["self_agent"]["id"],
-            current_pos,
-            agent["self_agent"]["score"],
-            passwall,
-            enemies,
-        )
-        return random.choice(ACTIONS)
-
-    next_move = get_direction(current_pos, path[0])
-    for powerup, _ in powerup_clock.items():
-        powerup_clock[powerup] += 1
-    return next_move
-
-
-def use_defender(agent, eaten_set, step, powerup_clock, defender_scatter) -> str:
-    # safe phrase
-    agent_id = agent["self_agent"]["id"]
-
-    for p in agent["powerups"]:
-        if p["powerup"] == str(Powerup.SWORD):
-            eaten_set.add((p["x"], p["y"]))
-        elif (p["x"], p["y"]) in eaten_set:
-            eaten_set.remove((p["x"], p["y"]))
-
-    # record powerups
-    if "passwall" in agent["self_agent"]["powerups"]:
-        passwall = agent["self_agent"]["powerups"]["passwall"]
-    else:
-        passwall = 0
-
-    if "shield" in agent["self_agent"]["powerups"]:
-        shield = agent["self_agent"]["powerups"]["shield"]
-    else:
-        shield = 0
-
-    current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
-
-    # scatter first
-    if step < 8:
-        if agent_id not in defender_scatter:
-            return rust_perf.get_direction(
-                current_pos,
-                random.choice([(0, 12), (18, 17), (11, 11)]),
-                list(eaten_set),
-            )
-        return rust_perf.get_direction(
-            current_pos,
-            defender_scatter[agent_id],
-            list(eaten_set),
-        )
-
-    # record locations have been arrived
-    if current_pos in global_coin_set:
-        eaten_set.add(current_pos)
-    if current_pos in global_powerup_set:
-        eaten_set.add(current_pos)
-        powerup_clock[current_pos] = 1
-
-    cancel_key = []
-    for powerup, clock in powerup_clock.items():
-        if clock == 12:
-            if powerup in eaten_set:
-                eaten_set.remove(powerup)
-            cancel_key.append(powerup)
-    for k in cancel_key:
-        del powerup_clock[k]
-
-    # enemies in out vision
-    other_agent_list = agent["other_agents"]
-    attacker_location = []
-    allies_location = []
-    has_sword = False
-    for other_agent in other_agent_list:
-        if other_agent["role"] == "DEFENDER":
-            allies_location.append((other_agent["x"], other_agent["y"]))
-        else:
-            attacker_location.append((other_agent["x"], other_agent["y"]))
-            if "sword" in other_agent["powerups"]:
-                has_sword = True
-
-    # strategy one (corner)
-    if (len(attacker_location) >= 1 and shield < 3) or has_sword:
-        next_move = rust_perf.check_stay_or_not(
-            current_pos, attacker_location, passwall, eaten_set
-        )
-        # print(agent_id, current_pos, attacker_location, next_move, passwall)
-        return next_move
-
-    if agent_id in [4, 5, 7]:
-        # print(
-        #     current_pos, agent["self_agent"]["score"], len(eaten_set), passwall, shield
-        # )
-        path = rust_perf.collect_coins_using_hull(current_pos, eaten_set)
-        if len(path) > 0:
-            return get_direction(current_pos, path[0])
-        else:
-            path, _ = rust_perf.collect_coins_using_powerup(
-                current_pos,
-                eaten_set,
-                allies_location,
-                attacker_location,
-                passwall,
-            )
-            return get_direction(current_pos, path[0])
-    else:
-        path, _ = rust_perf.collect_coins_using_powerup(
-            current_pos,
-            eaten_set,
-            allies_location,
-            attacker_location,
-            passwall,
-        )
-        if len(path) == 0:
-            return random.choice(ACTIONS)
-        else:
-            next_move = get_direction(current_pos, path[0])
-            for powerup, _ in powerup_clock.items():
-                powerup_clock[powerup] += 1
-            return next_move
-
-
 # load map
 with open("map.json") as f:
     map = json.load(f)
 game = Game(map)
-
 
 # init game
 win_count = 0
@@ -588,10 +583,7 @@ seeds = [random.randint(0, 1000000) for _ in range(5)]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
-    eatten_set = set()
     step = 0
-    powerup_clock = {}
-    defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
     start_game_time = time.time()
     # game loop
     while not game.is_over():
@@ -599,37 +591,20 @@ for seed in seeds:
         attacker_state = game.get_agent_states_by_player("attacker")
         defender_state = game.get_agent_states_by_player("defender")
 
-        attacker_locations = set()
-        defender_locations = set()
-        for k, v in attacker_state.items():
-            other_agent_list = v["other_agents"]
-            for other_agent in other_agent_list:
-                if other_agent["role"] == "ATTACKER":
-                    attacker_locations.add((other_agent["x"], other_agent["y"]))
-                # elif other_agent["invulnerability_duration"] == 0:
-                else:
-                    defender_locations.add((other_agent["x"], other_agent["y"]))
+        naga = Naga(map_info, defender_state, None)
+        naga.update_score(step)
+        if sum(naga.power_scores) > 0:
+            print(defender_state)
+            print(naga.env_score_limit)
+            print(naga.power_scores)
+            raise Exception("b")
 
-        # attacker_actions = {
-        #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
-        # }
         attacker_actions = {
-            _id: use_attacker(attacker_state[_id], list(defender_locations), {})
-            for _id in attacker_state.keys()
+            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         }
 
-        # defender_actions = {
-        #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
-        # }
         defender_actions = {
-            _id: use_defender(
-                defender_state[_id],
-                eatten_set,
-                step,
-                powerup_clock,
-                defender_scatter,
-            )
-            for _id in defender_state.keys()
+            _id: random.choice(ACTIONS) for _id in defender_state.keys()
         }
 
         game.apply_actions(

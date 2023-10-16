@@ -16,6 +16,7 @@ __modified__ =
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
+import itertools
 import json
 import math
 import time
@@ -28,8 +29,6 @@ import random
 from numba import jit
 
 import rust_perf
-
-ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
 
 class DIRECTION(Enum):
@@ -101,6 +100,7 @@ class Path:
         self.path = [
             [0 for _ in range(self.node_num)] for __ in range(self.node_num)
         ]  # type: List[List[int]]
+
         for i in range(self.node_num):
             for j in range(self.node_num):
                 self.path[i][j] = j
@@ -111,6 +111,7 @@ class Path:
                     self.dist[i][j] = 1
                 else:
                     self.dist[i][j] = 0
+
         self.dist = floyd(
             self.node_num, np.array(self.dist), np.array(self.path)
         ).tolist()
@@ -307,9 +308,28 @@ class MapInfo:
 
 
 class Naga:
-    def __init__(self, map_info: MapInfo, agent_states) -> None:
+    def __init__(self, map_info: MapInfo, agent_states, role: str) -> None:
         self.map_info = map_info
         self.agent_states = agent_states
+        self.id_to_agent = dict()
+        for i in range(4):
+            if role == "DEFENDER":
+                self.id_to_agent[i] = i + 4
+            else:
+                self.id_to_agent[i] = i
+
+        self.action = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
+        self.agent_count = len(agent_states)
+        self.score_num = len(self.action) ** self.agent_count
+        self.map_direction = []
+        self.combinations = list(
+            itertools.product(self.action, repeat=self.agent_count)
+        )
+        self.map_direction = [
+            {self.id_to_agent[i]: move for i, move in enumerate(combination)}
+            for combination in self.combinations
+        ]
+
         self.power_scores = [0.0 for _ in range(map_info.path.node_num)]
         self.env_score_limit = [0.0 for _ in range(map_info.path.node_num)]
         self.visit_time = [0 for _ in range(map_info.path.node_num)]
@@ -319,6 +339,7 @@ class Naga:
                 self.env_score_limit[i] = 1.0 / ((2 * map_info.vision + 1) ** 2)
         self.env_score = self.env_score_limit
 
+        self.all_danger = [0.0 for _ in range(self.map_info.path.node_num)]
         self.vec_danger = [
             [100.0 for _ in range(self.map_info.path.node_num)] for _ in range(4)
         ]
@@ -520,12 +541,12 @@ class Naga:
     def update_dist(self):
         node_num = self.map_info.path.node_num
         G = [[float("inf") for _ in range(node_num)] for _ in range(node_num)]
-        all_danger = [0.0 for _ in range(node_num)]
+        self.all_danger = [0.0 for _ in range(node_num)]
         for o_id, other_agent in self.other_agents.items():
             if other_agent["role"] == "ATTACKER":
                 danger = self.vec_danger[o_id]
                 for i in range(node_num):
-                    all_danger[i] += danger[i]
+                    self.all_danger[i] += danger[i]
         next_loc_set = set()
         for o_id, other_agent in self.other_agents.items():
             if other_agent["role"] == "ATTACKER":
@@ -567,13 +588,13 @@ class Naga:
     def eat_coin(self):
         cal_cache = dict()
         agent_first_coin = dict()
-        agent_pos = dict()
+        self.agent_pos = dict()
         for agent_id, agent_state in self.agent_states.items():
             agent_index = self.map_info.path.to_index_xy(
                 agent_state["self_agent"]["x"], agent_state["self_agent"]["y"]
             )
             agent_p = self.map_info.path.to_point(agent_index)
-            agent_pos[agent_id] = agent_p
+            self.agent_pos[agent_id] = agent_p
             shortest_dist = float("inf")
             for coin_index, score in enumerate(self.power_scores):
                 if score == 0:
@@ -589,7 +610,7 @@ class Naga:
 
         single_direction_score = []
         for agent_id, coin_index in agent_first_coin.items():
-            agent_p = agent_pos[agent_id]
+            agent_p = self.agent_pos[agent_id]
             coin_p = self.map_info.path.to_point(coin_index)
             for d in [
                 DIRECTION.UP,
@@ -601,71 +622,156 @@ class Naga:
                 cost_b = self.map_info.path.get_cost(agent_p.next[d], coin_p)
                 score = coin_p.point / (max(1.0, cost_a) + cost_b + 1)
                 single_direction_score.append((agent_id, d, score))
-        dir_score = {_id: [0 for _ in ACTIONS] for _id in range(4, 8)}
-        for i, action in enumerate(ACTIONS):
+
+        dir_score = [0.0 for _ in range(self.score_num)]
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
             for sds in single_direction_score:
-                if action == sds[1].value:
-                    dir_score[sds[0]][i] += sds[2]
+                if md[sds[0]] == sds[1].value:
+                    dir_score[idx] += sds[2]
 
         self.avoid_enemy(dir_score)
-        actions = {_id: "STAY" for _id in range(4, 8)}
-        for agent_id, action in dir_score.items():
-            actions[agent_id] = ACTIONS[action.index(max(action))]
-        return actions
+        self.out_vision(dir_score)
+        self.search_enemy(dir_score)
+        return self.map_direction[dir_score.index(max(dir_score))]
 
     def avoid_enemy(self, dir_score):
-        for i, action in enumerate(ACTIONS):
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
+            next_loc = []
+            continue_flag = False
             for agent_id, agent in self.agent_states.items():
                 p = self.map_info.path.to_point(
                     self.map_info.path.to_index_xy(
                         agent["self_agent"]["x"], agent["self_agent"]["y"]
                     )
                 )
-                for d in [
-                    DIRECTION.UP,
-                    DIRECTION.DOWN,
-                    DIRECTION.LEFT,
-                    DIRECTION.RIGHT,
-                ]:
-                    next_idx = self.map_info.path.to_index(p.next[d])
-                    if (
-                        self.danger_in_vision[next_idx]
-                        or self.danger_eat_in_vision[next_idx]
-                    ):
-                        print(p.__dict__)
-                        print(self.other_agents)
-                        print(dir_score)
-                        if d.value == action:
-                            dir_score[agent_id][i] -= 1e3
-                            print(dir_score)
-                            raise Exception("e")
+                next_point = p.next[DIRECTION(md[agent_id])]
+                if md[agent_id] != DIRECTION.STAY.value and next_point == p:
+                    continue_flag = True
+                    break
+                next_loc.append(self.map_info.path.to_index(next_point))
 
-
-def search_enemy(map_info: MapInfo, all_danger):
-    map_danger: Dict[int, float] = {}
-    for c in range(4):
-        max_score = float("-inf")
-        max_score_loc = 0
-
-        for n in range(map_info.path.node_num):
-            point = map_info.path.to_point(n)
-            if point.wall:
+            if continue_flag:
                 continue
 
             score = 0.0
-            for g in map_info.vision_grids[n]:
-                score += all_danger[g]
+            for loc in next_loc:
+                if self.danger_in_vision[loc] or self.danger_eat_in_vision[loc]:
+                    score -= 1e3
+            dir_score[idx] += score
 
-            if score > max_score:
-                max_score = score
-                max_score_loc = n
+    def out_vision(self, dir_score):
+        now_loc = []
+        for agent_id, agent in self.agent_states.items():
+            now_idx = self.map_info.path.to_index_xy(
+                agent["self_agent"]["x"], agent["self_agent"]["y"]
+            )
+            now_loc.append(now_idx)
 
-        if not math.isclose(max_score, 1e-6):  # replace 'equal_double' function
-            map_danger[max_score_loc] = max_score
-            print(f"max_score_loc: {max_score_loc} max_score: {max_score}")
-            point = map_info.path.to_point(max_score_loc)
-            for g in map_info.vision_grids[map_info.path.to_index(point)]:
-                all_danger[g] = 0.0
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
+            next_loc = []
+            continue_flag = False
+            for agent_id, agent in self.agent_states.items():
+                p = self.map_info.path.to_point(
+                    self.map_info.path.to_index_xy(
+                        agent["self_agent"]["x"], agent["self_agent"]["y"]
+                    )
+                )
+                next_point = p.next[DIRECTION(md[agent_id])]
+                if md[agent_id] != DIRECTION.STAY.value and next_point == p:
+                    continue_flag = True
+                    break
+                next_loc.append(self.map_info.path.to_index(next_point))
+
+            if continue_flag:
+                continue
+
+            score = 0.0
+            for e_loc in range(self.map_info.path.node_num):
+                danger = self.all_danger[e_loc]
+                if danger < 1e-2:
+                    continue
+                for i_loc in next_loc:
+                    i_dis = self.map_info.path.get_cost_index(e_loc, i_loc)
+                    score -= (40 - i_dis) * danger
+            dir_score[idx] += score
+
+    def run_away(self, dir_score):
+        reach_size = [
+            self.map_info.path.node_num for _ in range(self.map_info.path.node_num)
+        ]
+
+    def search_enemy(self, dir_score):
+        map_danger: Dict[int, float] = {}
+        for c in range(4):
+            max_score = float("-inf")
+            max_score_loc = 0
+
+            for n in range(map_info.path.node_num):
+                point = map_info.path.to_point(n)
+                if point.wall:
+                    continue
+
+                score = 0.0
+                for g in map_info.vision_grids[n]:
+                    score += self.all_danger[g]
+
+                if score > max_score:
+                    max_score = score
+                    max_score_loc = n
+
+            if max_score != 0:  # replace 'equal_double' function
+                map_danger[max_score_loc] = max_score
+                print(f"max_score_loc: {max_score_loc} max_score: {max_score}")
+                point = map_info.path.to_point(max_score_loc)
+                for g in map_info.vision_grids[map_info.path.to_index(point)]:
+                    self.all_danger[g] = 0.0
+
+        mu_first_danger = dict()
+        for idx in map_danger:
+            mu_id = -1
+            shortest_dist = float("inf")
+            for agent_id, agent in self.agent_states.items():
+                if agent_id in mu_first_danger:
+                    continue
+                pos = self.map_info.path.to_index_xy(
+                    agent["self_agent"]["x"], agent["self_agent"]["y"]
+                )
+                dist = self.map_info.path.get_cost_index(
+                    pos,
+                    idx,
+                )
+                if dist < shortest_dist:
+                    shortest_dist = dist
+                    mu_id = agent_id
+
+            if mu_id != -1 and mu_id not in mu_first_danger:
+                mu_first_danger[mu_id] = idx
+
+        single_direction_score = []
+        for agent_id, e_index in mu_first_danger.items():
+            agent_p = self.agent_pos[agent_id]
+            e_p = self.map_info.path.to_point(e_index)
+            for d in [
+                DIRECTION.UP,
+                DIRECTION.DOWN,
+                DIRECTION.LEFT,
+                DIRECTION.RIGHT,
+            ]:
+                cost = self.map_info.path.get_cost(agent_p, agent_p.next[d])
+                score = map_danger.get(self.map_info.path.to_index(agent_p), 0) / (
+                    cost + 1
+                )
+                single_direction_score.append((agent_id, d, cost, score))
+
+        dir_score = [0.0 for _ in range(self.score_num)]
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
+            for sds in single_direction_score:
+                if md[sds[0]] == sds[1].value:
+                    dir_score[idx] += sds[3] / (self.map_info.vision * 5)
 
 
 directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
@@ -854,7 +960,7 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-seeds = [170587]
+# seeds = [170587]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
@@ -879,7 +985,7 @@ for seed in seeds:
         attacker_state = game.get_agent_states_by_player("attacker")
         defender_state = game.get_agent_states_by_player("defender")
 
-        naga = Naga(map_info, defender_state)
+        naga = Naga(map_info, defender_state, "DEFENDER")
         naga.update_score(step)
         naga.update_dist()
         # naga.eat_coin()
@@ -890,7 +996,7 @@ for seed in seeds:
         #     raise Exception("b")
 
         attacker_actions = {
-            _id: random.choice(ACTIONS) for _id in attacker_state.keys()
+            _id: random.choice(naga.action) for _id in attacker_state.keys()
         }
         # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
 

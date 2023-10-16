@@ -52,6 +52,24 @@ for cell in global_map:
         global_walls_list.append((x, y))
 
 
+def get_direction(curr, next):
+    true_next = next
+
+    if curr[1] == true_next[1]:
+        if true_next[0] == curr[0]:
+            return "STAY"
+        elif true_next[0] == curr[0] + 1:
+            return "RIGHT"
+        elif true_next[0] == curr[0] - 1:
+            return "LEFT"
+    elif curr[0] == true_next[0]:
+        if true_next[1] == curr[1] + 1:
+            return "DOWN"
+        elif true_next[1] == curr[1] - 1:
+            return "UP"
+    return "NO"
+
+
 directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 
 
@@ -282,9 +300,8 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
     else:
         passwall = 0
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
-
-    # if agent["self_agent"]["id"] == 2:
-    #     print("^^^^", current_pos)
+    # if agent["self_agent"]["id"] == 1:
+    #     print("id: 1", current_pos, enemies)
 
     if len(enemies) == 0:
         explore_path = explore_paths[agent["self_agent"]["id"]]
@@ -293,11 +310,12 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
             explore_paths[agent["self_agent"]["id"]] = deepcopy(
                 explore_paths_template[agent["self_agent"]["id"]]
             )
-        next_move = get_direction(current_pos, next_point)
 
+        next_move = get_direction(current_pos, next_point)
         if next_move == "NO":
             explore_path.insert(0, next_point)
-            return rust_perf.get_direction(current_pos, next_point, [])
+            next_move = rust_perf.get_direction(current_pos, next_point, [])
+            return next_move
         else:
             return next_move
 
@@ -313,7 +331,6 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
         del powerup_clock[k]
 
     path = rust_perf.catch_enemies_using_powerup(
-        agent["self_agent"]["id"],
         current_pos,
         passwall,
         enemies,
@@ -342,9 +359,7 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
     return next_move
 
 
-def use_defender(
-    agent, eaten_set, step, powerup_clock, attacker_location, defender_scatter
-) -> str:
+def use_defender(agent, eaten_set, step, powerup_clock, defender_scatter) -> str:
     # safe phrase
     agent_id = agent["self_agent"]["id"]
 
@@ -399,24 +414,26 @@ def use_defender(
 
     # enemies in out vision
     other_agent_list = agent["other_agents"]
+    attacker_location = []
     allies_location = []
     has_sword = False
     for other_agent in other_agent_list:
         if other_agent["role"] == "DEFENDER":
             allies_location.append((other_agent["x"], other_agent["y"]))
         else:
+            attacker_location.append((other_agent["x"], other_agent["y"]))
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
     # strategy one (corner)
     if (len(attacker_location) >= 1 and shield < 3) or has_sword:
         next_move = rust_perf.check_stay_or_not(
-            current_pos, attacker_location, passwall
+            current_pos, attacker_location, passwall, eaten_set
         )
         # print(agent_id, current_pos, attacker_location, next_move, passwall)
         return next_move
 
-    if agent_id == 4:
+    if agent_id in [4, 5, 7]:
         # print(
         #     current_pos, agent["self_agent"]["score"], len(eaten_set), passwall, shield
         # )
@@ -449,24 +466,6 @@ def use_defender(
             return next_move
 
 
-def get_direction(curr, next):
-    true_next = next
-
-    if curr[1] == true_next[1]:
-        if true_next[0] == curr[0]:
-            return "STAY"
-        elif true_next[0] == curr[0] + 1:
-            return "RIGHT"
-        elif true_next[0] == curr[0] - 1:
-            return "LEFT"
-    elif curr[0] == true_next[0]:
-        if true_next[1] == curr[1] + 1:
-            return "DOWN"
-        elif true_next[1] == curr[1] - 1:
-            return "UP"
-    return "NO"
-
-
 # load map
 with open("map.json") as f:
     map = json.load(f)
@@ -478,7 +477,7 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [990986]
+# seeds = [268836]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
@@ -512,30 +511,19 @@ for seed in seeds:
             for _id in attacker_state.keys()
         }
 
-        attacker_locations = set()
-        defender_locations = set()
-        for k, v in defender_state.items():
-            other_agent_list = v["other_agents"]
-            for other_agent in other_agent_list:
-                if other_agent["role"] == "ATTACKER":
-                    attacker_locations.add((other_agent["x"], other_agent["y"]))
-                elif other_agent["invulnerability_duration"] == 0:
-                    defender_locations.add((other_agent["x"], other_agent["y"]))
-
-        defender_actions = {
-            _id: random.choice(ACTIONS) for _id in defender_state.keys()
-        }
         # defender_actions = {
-        #     _id: use_defender(
-        #         defender_state[_id],
-        #         eatten_set,
-        #         step,
-        #         powerup_clock,
-        #         list(attacker_locations),
-        #         defender_scatter,
-        #     )
-        #     for _id in defender_state.keys()
+        #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
         # }
+        defender_actions = {
+            _id: use_defender(
+                defender_state[_id],
+                eatten_set,
+                step,
+                powerup_clock,
+                defender_scatter,
+            )
+            for _id in defender_state.keys()
+        }
 
         game.apply_actions(
             attacker_actions=attacker_actions, defender_actions=defender_actions
@@ -554,9 +542,12 @@ for seed in seeds:
     attacker_score += game.get_result()["players"][0]["score"]
     defender_score += game.get_result()["players"][1]["score"]
 
+    defender_state = game.get_agent_states_by_player("attacker")
+    for k, v in defender_state.items():
+        print("attacker", k, v["self_agent"]["score"])
     defender_state = game.get_agent_states_by_player("defender")
     for k, v in defender_state.items():
-        print(k, v["self_agent"]["score"])
+        print("defender", k, v["self_agent"]["score"])
 
 print("Win rate is ", win_count / len(seeds))
 print(f"Attacker score: {attacker_score} vs Defender score: {defender_score}")

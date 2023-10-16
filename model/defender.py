@@ -1,5 +1,7 @@
 import random
+import time
 import numpy as np
+import rust_perf
 from model.model import Model
 from map.map import Map
 
@@ -59,9 +61,9 @@ class Defender(Model):
         return action
 
     def score_sum(self):
-        '''
+        """
         地图分数相加
-        '''
+        """
         self.map_score = np.zeros(shape=self.map.size)
         # 金币
         self.map_score += self.map.coin_map * 2

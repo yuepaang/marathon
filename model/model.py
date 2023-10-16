@@ -1,5 +1,6 @@
 import random
 import numpy as np
+from itertools import product
 from copy import deepcopy
 from map.map import Map
 
@@ -33,6 +34,7 @@ class Model:
         self.map = map
         self.round = 0
         self.total_score = 0
+        self.ALPHA = 0.9
         return
 
     def step(self):
@@ -53,29 +55,29 @@ class Model:
         agent_pos: {id1: (x1, y1), id2: (x2, y2)}
         '''
         delta = [[0, 1], [0, -1], [1, 0], [-1, 0]]
-        new_pos = dict()
-        for id in self.agents:
-            new_pos[id] = list()
+        new_pos = list()
+        ids = list()
+        for id, ap in agent_pos.items():
+            ids.append(id)
+            tmp = list()
             for d in delta:
-                pos_tmp = (agent_pos[id][0] + d[0], agent_pos[id][1] + d[1])
+                pos_tmp = (ap[0] + d[0], ap[1] + d[1])
                 if (not (0 <= pos_tmp[0] < self.map.size[0])
                         or not (0 <= pos_tmp[1] < self.map.size[1])
                         or self.map.wall_map[pos_tmp] == 1
                         or pos_tmp in visited[id]):
                     continue
-                new_pos[id].append(pos_tmp)
+                tmp.append(pos_tmp)
+            new_pos.append(tmp)
+
+        comb_pos = product(*new_pos)
 
         next_pos = list()
-        for p0 in new_pos[self.agents[0]]:
-            for p1 in new_pos[self.agents[1]]:
-                for p2 in new_pos[self.agents[2]]:
-                    for p3 in new_pos[self.agents[3]]:
-                        next_pos.append({
-                            self.agents[0]: p0,
-                            self.agents[1]: p1,
-                            self.agents[2]: p2,
-                            self.agents[3]: p3,
-                        })
+        for pos in comb_pos:
+            pos_dict = dict()
+            for i in range(len(ids)):
+                pos_dict[ids[i]] = pos[i]
+            next_pos.append(pos_dict)
 
         return next_pos
 
@@ -100,19 +102,18 @@ class Model:
             visited_copy[id] = set(v)
         # visited_copy = deepcopy(visited)
 
-        pos = list()
-        crowd = 0.0
-        for id in self.agents:
-            agent_pos = (position[id][0], position[id][1])
+        # pos = list()
+        # crowd = 0.0
+        for id, agent_pos in position.items():
             visited_copy[id].add(agent_pos)
-            reward += map_copy[agent_pos] * pow(0.99, step)
+            reward += map_copy[agent_pos] * pow(self.ALPHA, step)
             map_copy[agent_pos] = 0
+            # for other in pos:
+            #     if self.map.distance(other, agent_pos) < 3:
+            #         crowd += 0.01
+            # pos.append(agent_pos)
 
-            for other in pos:
-                if self.map.distance(other, agent_pos) < 3:
-                    crowd += 0.1
-
-        reward -= crowd
+        # reward -= crowd
 
         if reward > exploration["reward"]:
             exploration["reward"] = reward

@@ -56,7 +56,7 @@ for seed in seeds:
                 (view["self_agent"]["x"], view["self_agent"]["y"]))
         print_map_state(defender, opp_pos)
 
-        if defender.round > 100:
+        if defender.map.coin_map.sum() == 0:
             assert False
 
         # apply actions for agents:

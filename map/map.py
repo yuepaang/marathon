@@ -35,6 +35,7 @@ class Map:
             if cell_type == "WALL":
                 self.wall_map[map_coor[0], map_coor[1]] = 1
             if cell_type == "PORTAL":
+                self.wall_map[map_coor[0], map_coor[1]] = 1
                 self.portal[(map_coor[0], map_coor[1])] = self.obs_to_map_coor(
                     (cell["pair"]["x"], cell["pair"]["y"]))
         return

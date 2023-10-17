@@ -385,9 +385,8 @@ fn collect_coins_using_powerup(
                 eaten_coins.len(),
                 enemies_position,
             );
-            paths = conf::DEFENDER_BASE
+            paths = conf::PORTALS
                 .par_iter()
-                .chain(conf::PORTALS.par_iter())
                 .filter_map(|&p| algo::a_star_search_power(start, p, pass_wall, &banned_points))
                 .collect();
         }
@@ -400,9 +399,14 @@ fn collect_coins_using_powerup(
 
         let sp = paths
             .iter()
-            // .filter(|path| path.len() > 0)
+            .filter(|path| path.len() > 0)
             .min_by_key(|path| path.len())
             .unwrap();
+        // if sp.len() == 0 {
+        //     println!("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&. {:?}, {:?}", sp, paths);
+        //     total_path.push(origin);
+        //     break;
+        // }
 
         total_path.extend_from_slice(&sp[..sp.len()]);
 
@@ -459,28 +463,66 @@ fn explore_n_round_scores(
     Ok(action_scores)
 }
 
+// #[pyfunction]
+// fn explore(
+//     agents: Vec<usize>,
+//     positions: Vec<HashMap<usize, Point>>,
+//     map_score: Vec<Vec<f32>>,
+//     visited: HashMap<usize, HashSet<Point>>,
+//     max_step: usize,
+// ) -> PyResult<Vec<f32>> {
+//     let result = Arc::new(Mutex::new(Vec::new()));
+//     for _ in positions.iter() {
+//         let mut result = result.lock().unwrap();
+//         result.push(0.0);
+//     }
+//     println!("agents: {:?} pos_len: {}", agents, positions.len());
+//     positions.par_iter().enumerate().for_each(|(idx, pos)| {
+//         let mut max_reward = vec![0.0];
+
+//         algo::dfs(
+//             &agents,
+//             &pos,
+//             &map_score,
+//             0.0,
+//             &visited,
+//             0,
+//             max_step,
+//             &mut max_reward,
+//         );
+//         let mut result = result.lock().unwrap();
+//         result[idx] = max_reward[0];
+//     });
+//     Ok(Arc::try_unwrap(result).unwrap().into_inner().unwrap())
+// }
+
 #[pyfunction]
-fn explore(
+fn predict_enemy(
     agents: Vec<usize>,
     positions: Vec<HashMap<usize, Point>>,
-    map_score: Vec<Vec<f32>>,
+    my_pos: HashMap<usize, Point>,
     visited: HashMap<usize, HashSet<Point>>,
     max_step: usize,
-) -> PyResult<Vec<f32>> {
+) -> PyResult<Vec<i32>> {
     let result = Arc::new(Mutex::new(Vec::new()));
     for _ in positions.iter() {
         let mut result = result.lock().unwrap();
-        result.push(0.0);
+        result.push(0);
     }
-    println!("agents: {:?} pos_len: {}", agents, positions.len());
+    // println!(
+    //     "agents: {:?} pos_len: {}, my_pos: {:?}",
+    //     agents,
+    //     positions.len(),
+    //     my_pos,
+    // );
     positions.par_iter().enumerate().for_each(|(idx, pos)| {
-        let mut max_reward = vec![0.0];
+        let mut max_reward = vec![0];
 
         algo::dfs(
             &agents,
             &pos,
-            &map_score,
-            0.0,
+            &my_pos,
+            0,
             &visited,
             0,
             max_step,
@@ -545,7 +587,7 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_stay_or_not, m)?)?;
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_hull, m)?)?;
-    m.add_function(wrap_pyfunction!(explore, m)?)?;
+    m.add_function(wrap_pyfunction!(predict_enemy, m)?)?;
     m.add_function(wrap_pyfunction!(shortest_path, m)?)?;
     Ok(())
 }

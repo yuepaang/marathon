@@ -15,6 +15,7 @@ __modified__ =
 
 from collections import defaultdict
 from copy import deepcopy
+from itertools import product
 import json
 import time
 
@@ -359,8 +360,45 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
     return next_move
 
 
+def get_all_nearby_pos(agent_pos: dict, map_in_heart: list):
+    """
+    agent_pos: {id1: (x1, y1), id2: (x2, y2)}
+    """
+    delta = [[0, 1], [0, -1], [1, 0], [-1, 0]]
+    new_pos = list()
+    ids = list()
+    for id, ap in agent_pos.items():
+        ids.append(id)
+        tmp = list()
+        for d in delta:
+            pos_tmp = (ap[0] + d[0], ap[1] + d[1])
+            if (
+                not (0 <= pos_tmp[0] < 24)
+                or not (0 <= pos_tmp[1] < 24)
+                or map_in_heart[pos_tmp[0]][pos_tmp[1]] < 0
+            ):
+                continue
+            tmp.append(pos_tmp)
+        new_pos.append(tmp)
+
+    comb_pos = product(*new_pos)
+
+    next_pos = list()
+    for pos in comb_pos:
+        pos_dict = dict()
+        for i in range(len(ids)):
+            pos_dict[ids[i]] = pos[i]
+        next_pos.append(pos_dict)
+
+    return next_pos
+
+
 def use_defender(
-    agent, input_eaten_set, powerup_clock, other_target, attacker_locations
+    agent,
+    input_eaten_set,
+    powerup_clock,
+    other_target,
+    attacker_locations,
 ) -> str:
     # safe phrase
     agent_id = agent["self_agent"]["id"]
@@ -406,7 +444,7 @@ def use_defender(
     has_sword = False
     nearest_enemy_dist = 1e8
     total_dist = 0
-    for ep in attacker_locations:
+    for _, ep in attacker_locations.items():
         dist = rust_perf.shortest_path(current_pos, ep)
         total_dist += dist
         if dist < nearest_enemy_dist:
@@ -418,34 +456,36 @@ def use_defender(
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
+    attacker_list = [v for v in attacker_locations.values()]
     # run away strategy
     if (
-        len(attacker_locations) > 1
-        and shield < 2
-        and invisibility < 2
-        and total_dist < 15
-        and nearest_enemy_dist <= 3
-    ) or has_sword:
-        next_move = rust_perf.check_stay_or_not(
-            current_pos, list(attacker_locations), passwall, eaten_set
+        (
+            # len(attacker_locations) > 1
+            shield < 2
+            and invisibility < 2
+            and total_dist < 10
+            or nearest_enemy_dist < 3
         )
-        print("**********")
-        print("id: ", agent_id)
-        print(current_pos)
-        print(attacker_locations)
-        print(has_sword, shield)
-        print("dist:", total_dist)
-        print("score:", agent["self_agent"]["score"])
-        print(next_move)
+        or has_sword
+        or current_pos in attacker_list
+    ):
+        next_move = rust_perf.check_stay_or_not(
+            current_pos, attacker_list, passwall, eaten_set
+        )
+        # print("**********")
+        # print("id: ", agent_id)
+        # print(current_pos)
+        # print(attacker_locations)
+        # print(has_sword, shield)
+        # print("dist:", total_dist)
+        # print("score:", agent["self_agent"]["score"])
+        # print(next_move)
         return next_move
-    elif nearest_enemy_dist > 2:
-        # safe
-        attacker_locations = set()
 
     target_coin, path, _ = rust_perf.collect_coins_using_powerup(
-        current_pos, eaten_set, passwall, attacker_locations
+        current_pos, eaten_set, passwall, set(attacker_list)
     )
-    if nearest_enemy_dist == 2:
+    if nearest_enemy_dist == 1:
         print("???")
         print("id: ", agent_id)
         print(path)
@@ -475,7 +515,7 @@ win_count = 0
 attacker_score = 0
 defender_score = 0
 seeds = [random.randint(0, 1000000) for _ in range(5)]
-# seeds = [252956]
+seeds = [741321]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
@@ -484,11 +524,59 @@ for seed in seeds:
     powerup_clock = {}
     defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
     start_game_time = time.time()
+    map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
+    for x, y in global_walls_list:
+        map_in_heart[x][y] = -1.0
+    predicted_attacker_pos = {0: (22, 0), 1: (22, 1), 2: (23, 0), 3: (23, 1)}
+
     # game loop
+    prev_score = 0
     while not game.is_over():
         # get game state for player:
+        total_defender_score = 0
         attacker_state = game.get_agent_states_by_player("attacker")
         defender_state = game.get_agent_states_by_player("defender")
+
+        for _, v in defender_state.items():
+            total_defender_score += v["self_agent"]["score"]
+        print(
+            "a",
+            [
+                (v["self_agent"]["x"], v["self_agent"]["y"])
+                for _, v in attacker_state.items()
+            ],
+            [v["self_agent"]["score"] for _, v in attacker_state.items()],
+        )
+        print(
+            "d",
+            [
+                (v["self_agent"]["x"], v["self_agent"]["y"])
+                for _, v in defender_state.items()
+            ],
+            [v["self_agent"]["score"] for _, v in defender_state.items()],
+        )
+        if total_defender_score >= prev_score:
+            prev_score = total_defender_score
+        else:
+            print(prev_score)
+            print(total_defender_score)
+            print(defender_state)
+            print("--------")
+            print(attacker_state)
+
+            print(
+                [
+                    (v["self_agent"]["x"], v["self_agent"]["y"])
+                    for _, v in attacker_state.items()
+                ]
+            )
+            print(
+                [
+                    (v["self_agent"]["x"], v["self_agent"]["y"])
+                    for _, v in defender_state.items()
+                ]
+            )
+            raise Exception("e")
 
         attacker_locations = set()
         defender_locations = set()
@@ -513,15 +601,31 @@ for seed in seeds:
         #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
         # }
 
+        my_pos = {}
         attacker_locations = set()
-        defender_locations = set()
         for k, v in defender_state.items():
+            my_pos[int(k)] = (v["self_agent"]["x"], v["self_agent"]["y"])
             other_agent_list = v["other_agents"]
             for other_agent in other_agent_list:
                 if other_agent["role"] == "ATTACKER":
                     attacker_locations.add((other_agent["x"], other_agent["y"]))
-                else:
-                    defender_locations.add((other_agent["x"], other_agent["y"]))
+                    predicted_attacker_pos[int(other_agent["id"])] = (
+                        other_agent["x"],
+                        other_agent["y"],
+                    )
+
+        all_pos = get_all_nearby_pos(predicted_attacker_pos, map_in_heart)
+        # print(all_pos)
+        # print(my_pos)
+        # start = time.time()
+        # if len(all_pos) > 100:
+        #     all_pos = random.sample(all_pos, 100)
+        score_vec = rust_perf.predict_enemy([0, 1, 2, 3], all_pos, my_pos, {}, 0)
+        # print(time.time() - start)
+        # print(score_vec)
+        predicted_attacker_pos = all_pos[score_vec.index(max(score_vec))]
+        # print(predicted_attacker_pos)
+        # raise Exception("e")
 
         other_target = {}
         defender_actions = {
@@ -530,7 +634,8 @@ for seed in seeds:
                 eatten_set,
                 powerup_clock,
                 other_target,
-                attacker_locations,
+                # attacker_locations,
+                predicted_attacker_pos,
             )
             for _id in defender_state.keys()
         }

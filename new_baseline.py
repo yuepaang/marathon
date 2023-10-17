@@ -311,6 +311,7 @@ class Naga:
     def __init__(self, map_info: MapInfo, agent_states, role: str) -> None:
         self.map_info = map_info
         self.agent_states = agent_states
+        self.role = role
         self.id_to_agent = dict()
         for i in range(4):
             if role == "DEFENDER":
@@ -346,6 +347,12 @@ class Naga:
         self.all_enemy_in_vision = False
         self.danger_in_vision = [False for _ in range(self.map_info.path.node_num)]
         self.danger_eat_in_vision = [False for _ in range(self.map_info.path.node_num)]
+        self.vision_grids_index = [False for _ in range(self.map_info.path.node_num)]
+        self.n_enemy = 0
+
+        self.map_enemy_predict = dict()
+        self.map_enemy_loc = dict()
+        self.map_enemy_repeat = dict()
 
     def update_score(self, step: int):
         for i in range(self.map_info.path.node_num):
@@ -356,11 +363,12 @@ class Naga:
                 )
 
         self.other_agents = {}
-        vision_grids_index = [False for _ in range(self.map_info.path.node_num)]
+        self.vision_grids_index = [False for _ in range(self.map_info.path.node_num)]
         for _, agent_state in self.agent_states.items():
             for other_agent in agent_state["other_agents"]:
-                if other_agent["id"] not in self.other_agents:
-                    self.other_agents[other_agent["id"]] = other_agent
+                if other_agent["role"] != self.role:
+                    if other_agent["id"] not in self.other_agents:
+                        self.other_agents[other_agent["id"]] = other_agent
 
             for n in self.map_info.vision_grids[
                 self.map_info.path.to_index_xy(
@@ -401,59 +409,74 @@ class Naga:
 
             # update danger
             for idx in self.map_info.vision_grids[agent_index]:
-                p = self.map_info.path.to_point(idx)
-                if p.wall:
+                v = self.map_info.path.to_point(idx)
+                if v.wall:
                     continue
-                vision_grids_index[idx] = True
+                self.vision_grids_index[idx] = True
 
-            n_enemy = 0
+            self.n_enemy = 0
             for o_id, other_agent in self.other_agents.items():
-                if other_agent["role"] == "ATTACKER":
-                    pos = self.map_info.path.to_index_xy(
-                        other_agent["x"], other_agent["y"]
-                    )
-                    n_enemy += 1
-                    # print((other_agent["x"], other_agent["y"]))
-                    # FIXME:
-                    danger = self.vec_danger[o_id]
-                    inside, outside = 0.0, 0.0
-                    outside_count = 0
-                    for i in range(self.map_info.path.node_num):
-                        p = self.map_info.path.to_point(i)
-                        if p.wall:
-                            continue
-                        if vision_grids_index[i]:
-                            inside += danger[i]
-                            danger[i] = 0.0
-                        else:
-                            outside += danger[i]
-                            outside_count += 1
+                pos = self.map_info.path.to_index_xy(other_agent["x"], other_agent["y"])
+                self.n_enemy += 1
 
-                    # may be dead
-                    for i in range(self.map_info.path.node_num):
-                        p = self.map_info.path.to_point(i)
-                        if p.wall:
-                            continue
-                        if not vision_grids_index[i]:
-                            danger[i] += inside / outside_count
+                danger = self.vec_danger[o_id]
+                inside, outside = 0.0, 0.0
+                outside_count = 0
+                for i in range(self.map_info.path.node_num):
+                    p = self.map_info.path.to_point(i)
+                    if p.wall:
+                        continue
 
+                    if self.vision_grids_index[i]:
+                        inside += danger[i]
+                        danger[i] = 0.0
+                    else:
+                        outside += danger[i]
+                        outside_count += 1
+
+                # may be dead
+                for i in range(self.map_info.path.node_num):
+                    p = self.map_info.path.to_point(i)
+                    if p.wall:
+                        continue
+                    if not self.vision_grids_index[i]:
+                        danger[i] += inside / outside_count
+
+                # print(f"id:{o_id}, inside:{inside}, outside:{outside}")
+                # raise Exception("e")
+
+            for o_id, other_agent in self.other_agents.items():
+                pos = self.map_info.path.to_index_xy(other_agent["x"], other_agent["y"])
+                # print("attacker: ", (other_agent["x"], other_agent["y"]))
+                # FIXME:
+                danger = self.vec_danger[o_id]
+                inside, outside = 0.0, 0.0
+                outside_count = 0
+                danger = [0.0 for _ in range(self.map_info.path.node_num)]
+                danger[pos] = self.map_info.path.node_num * 100.0
+
+                danger_temp = [0.0 for _ in range(self.map_info.path.node_num)]
+                next_index = []
+                for i in range(self.map_info.path.node_num):
+                    p = self.map_info.path.to_point(i)
+                    if p.wall:
+                        continue
+                    if danger[i] == 0.0:
+                        continue
+                    next_index = []
+                    for np in p.next.values():
+                        next_index.append(self.map_info.path.to_index(np))
+                    for ni in next_index:
+                        danger_temp[ni] += danger[i] / len(next_index)
+
+                    # print(danger_temp)
                     # print(danger)
                     # raise Exception("e")
+                self.vec_danger[o_id] = danger_temp
 
-            for o_id, other_agent in self.other_agents.items():
-                if other_agent["role"] == "ATTACKER":
-                    pos = self.map_info.path.to_index_xy(
-                        other_agent["x"], other_agent["y"]
-                    )
-                    # print("attacker: ", (other_agent["x"], other_agent["y"]))
-                    # FIXME:
-                    danger = self.vec_danger[o_id]
-                    inside, outside = 0.0, 0.0
-                    outside_count = 0
-                    danger = [0.0 for _ in range(self.map_info.path.node_num)]
-                    danger[pos] = self.map_info.path.node_num * 100.0
-
-                    danger_temp = [0.0 for _ in range(self.map_info.path.node_num)]
+            if self.role == "DEFENDER":
+                for o_id, other_agent in self.other_agents.items():
+                    danger_temp_temp = [0.0 for _ in range(self.map_info.path.node_num)]
                     next_index = []
                     for i in range(self.map_info.path.node_num):
                         p = self.map_info.path.to_point(i)
@@ -465,78 +488,49 @@ class Naga:
                         for np in p.next.values():
                             next_index.append(self.map_info.path.to_index(np))
                         for ni in next_index:
-                            danger_temp[ni] += danger[i] / len(next_index)
+                            danger_temp_temp[ni] += danger[i] / len(next_index)
 
                         # print(danger_temp)
                         # print(danger)
                         # raise Exception("e")
-                    self.vec_danger[o_id] = danger_temp
-
-            if agent_state["self_agent"]["role"] == "DEFENDER":
-                for o_id, other_agent in self.other_agents.items():
-                    if other_agent["role"] == "ATTACKER":
-                        danger_temp_temp = [
-                            0.0 for _ in range(self.map_info.path.node_num)
-                        ]
-                        next_index = []
-                        for i in range(self.map_info.path.node_num):
-                            p = self.map_info.path.to_point(i)
-                            if p.wall:
-                                continue
-                            if danger[i] == 0.0:
-                                continue
-                            next_index = []
-                            for np in p.next.values():
-                                next_index.append(self.map_info.path.to_index(np))
-                            for ni in next_index:
-                                danger_temp_temp[ni] += danger[i] / len(next_index)
-
-                            # print(danger_temp)
-                            # print(danger)
-                            # raise Exception("e")
-                        self.vec_danger[o_id] = danger_temp_temp
+                    self.vec_danger[o_id] = danger_temp_temp
 
             self.all_enemy_in_vision = False
-            if n_enemy == 4:
+            if self.n_enemy == 4:
                 self.all_enemy_in_vision = True
             # TODO: passwall
             for o_id, other_agent in self.other_agents.items():
-                if other_agent["role"] == "ATTACKER":
-                    pos = self.map_info.path.to_index_xy(
-                        other_agent["x"], other_agent["y"]
-                    )
-                    p = self.map_info.path.to_point(pos)
-                    for d in [
+                pos = self.map_info.path.to_index_xy(other_agent["x"], other_agent["y"])
+                p = self.map_info.path.to_point(pos)
+                for d in [
+                    DIRECTION.STAY,
+                    DIRECTION.UP,
+                    DIRECTION.DOWN,
+                    DIRECTION.LEFT,
+                    DIRECTION.RIGHT,
+                ]:
+                    next_idx = self.map_info.path.to_index(p.next[d])
+                    self.danger_in_vision[next_idx] = True
+                    if p.next[d].portal:
+                        portal_idx = self.map_info.path.to_index(p.next[d].portal)
+                        self.danger_in_vision[portal_idx] = True
+                    for dd in [
                         DIRECTION.STAY,
                         DIRECTION.UP,
                         DIRECTION.DOWN,
                         DIRECTION.LEFT,
                         DIRECTION.RIGHT,
                     ]:
-                        next_idx = self.map_info.path.to_index(p.next[d])
-                        self.danger_in_vision[next_idx] = True
-                        if p.next[d].portal:
-                            portal_idx = self.map_info.path.to_index(p.next[d].portal)
-                            self.danger_in_vision[portal_idx] = True
-                        for dd in [
-                            DIRECTION.STAY,
-                            DIRECTION.UP,
-                            DIRECTION.DOWN,
-                            DIRECTION.LEFT,
-                            DIRECTION.RIGHT,
-                        ]:
-                            next_next_idx = self.map_info.path.to_index(
-                                p.next[d].next[dd]
+                        next_next_idx = self.map_info.path.to_index(p.next[d].next[dd])
+                        self.danger_eat_in_vision[next_next_idx] = True
+                        if p.next[d].next[dd].portal:
+                            portal_next_idx = self.map_info.path.to_index(
+                                p.next[d].next[dd].portal
                             )
-                            self.danger_eat_in_vision[next_next_idx] = True
-                            if p.next[d].next[dd].portal:
-                                portal_next_idx = self.map_info.path.to_index(
-                                    p.next[d].next[dd].portal
-                                )
-                                self.danger_eat_in_vision[portal_next_idx] = True
-                    # print(self.danger_in_vision)
-                    # print(self.map_info.path.is_danger_index)
-                    # raise Exception("e")
+                            self.danger_eat_in_vision[portal_next_idx] = True
+                # print(self.danger_in_vision)
+                # print(self.map_info.path.is_danger_index)
+                # raise Exception("e")
 
     def update_dist(self):
         node_num = self.map_info.path.node_num
@@ -585,10 +579,29 @@ class Naga:
         # print(G)
         # raise Exception("e")
 
+    def predict_enemy(self, step: int):
+        # self.map_enemy_predict = dict()
+        # self.map_enemy_loc = dict()
+        # self.map_enemy_repeat = dict()
+        # repeat_times = 4
+        # for oid, other_agent in self.other_agents.items():
+        #     if other_agent["role"] == "DEFENDER":
+        #         continue
+        #     for repeat_interval in range(1, 5):
+        #         if self.map_enemy_predict.get(oid,False):
+        #             continue
+        #         if repeat_times * repeat_interval >= step:
+        #             continue
+        #         is_break = False
+        #         loc_record = []
+        #         for i in range(repeat_times*repeat_interval):
+        #             if oid in
+        pass
+
     def eat_coin(self):
-        cal_cache = dict()
         agent_first_coin = dict()
         self.agent_pos = dict()
+
         for agent_id, agent_state in self.agent_states.items():
             agent_index = self.map_info.path.to_index_xy(
                 agent_state["self_agent"]["x"], agent_state["self_agent"]["y"]
@@ -599,14 +612,20 @@ class Naga:
             for coin_index, score in enumerate(self.power_scores):
                 if score == 0:
                     continue
-                if coin_index in cal_cache:
+                continue_flag = False
+                for id_, ci in agent_first_coin.items():
+                    if id_ == agent_id:
+                        continue
+                    if ci == coin_index:
+                        continue_flag = True
+                        break
+                if continue_flag:
                     continue
-                p = self.map_info.path.to_point(coin_index)
-                dist = self.map_info.path.get_cost(p, agent_p)
+
+                dist = self.map_info.path.get_cost_index(coin_index, agent_index)
                 if dist < shortest_dist:
                     shortest_dist = dist
                     agent_first_coin[agent_id] = coin_index
-                    cal_cache[coin_index] = agent_id
 
         single_direction_score = []
         for agent_id, coin_index in agent_first_coin.items():
@@ -630,9 +649,12 @@ class Naga:
                 if md[sds[0]] == sds[1].value:
                     dir_score[idx] += sds[2]
 
+        # print([s for s in dir_score if s == max(dir_score)])
+        # raise Exception("e")
         self.avoid_enemy(dir_score)
         self.out_vision(dir_score)
         self.search_enemy(dir_score)
+        self.remove_invalid(dir_score)
         return self.map_direction[dir_score.index(max(dir_score))]
 
     def avoid_enemy(self, dir_score):
@@ -658,6 +680,14 @@ class Naga:
             score = 0.0
             for loc in next_loc:
                 if self.danger_in_vision[loc] or self.danger_eat_in_vision[loc]:
+                    print(self.agent_states)
+                    print("-------")
+                    print(self.other_agents)
+                    print("-------")
+                    print(md)
+                    print("-------")
+                    print(dir_score)
+                    raise Exception("e")
                     score -= 1e3
             dir_score[idx] += score
 
@@ -724,7 +754,7 @@ class Naga:
 
             if max_score != 0:  # replace 'equal_double' function
                 map_danger[max_score_loc] = max_score
-                print(f"max_score_loc: {max_score_loc} max_score: {max_score}")
+                # print(f"max_score_loc: {max_score_loc} max_score: {max_score}")
                 point = map_info.path.to_point(max_score_loc)
                 for g in map_info.vision_grids[map_info.path.to_index(point)]:
                     self.all_danger[g] = 0.0
@@ -772,6 +802,24 @@ class Naga:
             for sds in single_direction_score:
                 if md[sds[0]] == sds[1].value:
                     dir_score[idx] += sds[3] / (self.map_info.vision * 5)
+
+    def remove_invalid(self, dir_score):
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
+            continue_flag = False
+            for agent_id, agent in self.agent_states.items():
+                p = self.map_info.path.to_point(
+                    self.map_info.path.to_index_xy(
+                        agent["self_agent"]["x"], agent["self_agent"]["y"]
+                    )
+                )
+                next_point = p.next[DIRECTION(md[agent_id])]
+                if md[agent_id] != DIRECTION.STAY.value and next_point == p:
+                    continue_flag = True
+                    break
+
+            if continue_flag:
+                dir_score[idx] -= 1e6
 
 
 directions = [(0, -1), (1, 0), (0, 1), (-1, 0)]
@@ -995,12 +1043,23 @@ for seed in seeds:
         #     print(naga.power_scores)
         #     raise Exception("b")
 
-        attacker_actions = {
-            _id: random.choice(naga.action) for _id in attacker_state.keys()
-        }
-        # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
+        # attacker_actions = {
+        #     _id: random.choice(naga.action) for _id in attacker_state.keys()
+        # }
+        attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
 
+        attacker_locs = set()
+        my_locs = {}
+        for agent_id, agent in defender_state.items():
+            my_locs[agent_id] = (agent["self_agent"]["x"], agent["self_agent"]["y"])
+            for other_agent in agent["other_agents"]:
+                if other_agent["role"] == "ATTACKER":
+                    attacker_locs.add((other_agent["x"], other_agent["y"]))
         defender_actions = naga.eat_coin()
+        # if len(attacker_locs) > 1:
+        #     print(attacker_locs)
+        #     print(my_locs)
+        #     print(defender_actions)
         # defender_actions = {
         #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
         # }

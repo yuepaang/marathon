@@ -8,7 +8,7 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 
@@ -131,6 +131,9 @@ fn check_stay_or_not(
                 continue;
             }
         }
+        if enemies_position.contains(&next) {
+            continue;
+        }
 
         // PORTAL MOVE
         let index = conf::PORTALS
@@ -140,7 +143,7 @@ fn check_stay_or_not(
         if index != 99 {
             next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
         }
-        if pass_wall <= 0 {
+        if pass_wall == 0 {
             if banned_points.contains(&next) {
                 continue;
             }
@@ -260,6 +263,7 @@ fn catch_enemies_using_powerup(
     pass_wall: usize,
     mut enemies: Vec<Point>,
 ) -> PyResult<Vec<Point>> {
+    let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     let mut chase_path = Vec::new();
     enemies.sort_by_key(|&e| distance(start, e));
     if enemies[0] == start {
@@ -271,8 +275,8 @@ fn catch_enemies_using_powerup(
             }
         }
     } else {
-        chase_path =
-            algo::a_star_search_power(start, enemies[0], vec![], pass_wall).unwrap_or(vec![]);
+        chase_path = algo::a_star_search_power(start, enemies[0], pass_wall, &banned_points)
+            .unwrap_or(vec![]);
     }
     return Ok(chase_path);
 }
@@ -327,72 +331,85 @@ fn collect_coins_using_hull(start: Point, eaten_coins: HashSet<Point>) -> PyResu
 fn collect_coins_using_powerup(
     mut start: Point,
     mut eaten_coins: HashSet<Point>,
-    allies_position: Vec<Point>,
-    enemies_position: Vec<Point>,
     mut pass_wall: usize,
-) -> PyResult<(Vec<Point>, usize)> {
+    enemies_position: HashSet<Point>,
+) -> PyResult<(Point, Vec<Point>, usize)> {
     let origin = start.clone();
+    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+    // banned_points.extend(enemies_position.clone());
+    for &e in enemies_position.iter() {
+        for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+            let next = (e.0 + i, e.1 + j);
+            if algo::check_out_of_bound(next) {
+                continue;
+            }
+            if banned_points.contains(&next) {
+                continue;
+            }
+            banned_points.insert(next);
+        }
+    }
 
     let mut search_depth = 0;
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
-
-    // check escape strategy
-    let escape_path = deal_with_enemy_nearby(start, enemies_position.clone());
-    if !escape_path.is_empty() {
-        return Ok((escape_path, 0));
-    }
+    let mut first_coin = (0, 0);
 
     // find the potential move with greatest coin score
     loop {
         search_depth += 1;
-        let mut positive_targets: Vec<Point> = conf::COINS
+        let positive_targets: Vec<Point> = conf::COINS
             .par_iter()
             .chain(conf::POWERUPS.par_iter())
             .filter(|x| !eaten_coins.contains(&x))
             .map(|x| (x.0, x.1))
             .collect();
-        positive_targets.sort_by_key(|&t| distance(start, t));
 
-        if search_depth > 10 {
+        if search_depth > 10 || positive_targets.is_empty() {
             break;
         }
 
         let mut paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
             .filter_map(|&target| {
-                algo::a_star_search_power(start, target, allies_position.clone(), pass_wall)
+                algo::a_star_search_power(start, target, pass_wall, &banned_points)
             })
             .collect();
 
         // TODO: away from potential enemies
         if paths.is_empty() {
-            // println!("NO TARGET! current position: {:?}", start);
+            println!(
+                "NO TARGET! current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
+                start,
+                positive_targets,
+                eaten_coins.len(),
+                enemies_position,
+            );
             paths = conf::DEFENDER_BASE
                 .par_iter()
-                .chain(conf::ATTACKER_BASE.par_iter())
-                .filter_map(|&p| algo::a_star_search_power(start, p, vec![], pass_wall))
+                .chain(conf::PORTALS.par_iter())
+                .filter_map(|&p| algo::a_star_search_power(start, p, pass_wall, &banned_points))
                 .collect();
         }
 
         if paths.is_empty() {
-            println!(
-                "No strategy for now: JUST STAY. enemies: {:?}",
-                enemies_position
-            );
+            println!("No strategy for now: JUST STAY.");
             total_path.push(origin);
             break;
         }
 
         let sp = paths
             .iter()
-            .filter(|path| path.len() > 0)
+            // .filter(|path| path.len() > 0)
             .min_by_key(|path| path.len())
             .unwrap();
 
         total_path.extend_from_slice(&sp[..sp.len()]);
 
         start = *sp.last().unwrap();
+        if search_depth == 1 {
+            first_coin = start;
+        }
         eaten_coins.insert((start.0, start.1));
         agent_coins_score += 2;
         pass_wall -= sp.len();
@@ -402,7 +419,7 @@ fn collect_coins_using_powerup(
         println!("no total path generated.")
     }
 
-    Ok((total_path, agent_coins_score))
+    Ok((first_coin, total_path, agent_coins_score))
 }
 
 // PERF: all agents parallel
@@ -443,74 +460,6 @@ fn explore_n_round_scores(
 }
 
 #[pyfunction]
-fn collect_coins_parallel(
-    mut start: Point,
-    mut eaten_coins: HashSet<Point>,
-    mut pass_wall: usize,
-) -> PyResult<(Vec<Point>, usize)> {
-    let origin = start.clone();
-
-    let mut search_depth = 0;
-    let mut agent_coins_score = 0;
-    let mut total_path = Vec::new();
-
-    // find the potential move with greatest coin score
-    loop {
-        search_depth += 1;
-        let mut positive_targets: Vec<Point> = conf::COINS
-            .par_iter()
-            .chain(conf::POWERUPS.par_iter())
-            .filter(|x| !eaten_coins.contains(&x))
-            .map(|x| (x.0, x.1))
-            .collect();
-        positive_targets.sort_by_key(|&t| distance(start, t));
-
-        if search_depth > 10 {
-            break;
-        }
-
-        let mut paths: Vec<Vec<Point>> = positive_targets
-            .par_iter()
-            .filter_map(|&target| algo::a_star_search_power(start, target, vec![], pass_wall))
-            .collect();
-
-        // TODO: away from potential enemies
-        if paths.is_empty() {
-            // println!("NO TARGET! current position: {:?}", start);
-            paths = conf::DEFENDER_BASE
-                .par_iter()
-                .chain(conf::ATTACKER_BASE.par_iter())
-                .filter_map(|&p| algo::a_star_search_power(start, p, vec![], pass_wall))
-                .collect();
-        }
-
-        if paths.is_empty() {
-            total_path.push(origin);
-            break;
-        }
-
-        let sp = paths
-            .iter()
-            .filter(|path| path.len() > 0)
-            .min_by_key(|path| path.len())
-            .unwrap();
-
-        total_path.extend_from_slice(&sp[..sp.len()]);
-
-        start = *sp.last().unwrap();
-        eaten_coins.insert((start.0, start.1));
-        agent_coins_score += 2;
-        pass_wall -= sp.len();
-    }
-
-    if total_path.len() == 0 {
-        println!("no total path generated.")
-    }
-
-    Ok((total_path, agent_coins_score))
-}
-
-#[pyfunction]
 fn explore(
     agents: Vec<usize>,
     positions: Vec<HashMap<usize, Point>>,
@@ -543,6 +492,49 @@ fn explore(
     Ok(Arc::try_unwrap(result).unwrap().into_inner().unwrap())
 }
 
+#[pyfunction]
+fn shortest_path(start: Point, end: Point) -> Option<i32> {
+    let directions: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+    let walls: HashSet<Point> = conf::WALLS.par_iter().map(|x| (x.0, x.1)).collect();
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    let mut portals = HashMap::new();
+    for (idx, portal) in conf::PORTALS.iter().enumerate() {
+        portals.insert(portal, conf::PORTALS_DEST[idx].clone());
+    }
+    queue.push_back((start, 0));
+
+    while let Some((current, dist)) = queue.pop_front() {
+        if current == end {
+            return Some(dist);
+        }
+
+        // Check if current point is a portal entrance
+        if let Some(&portal_exit) = portals.get(&current) {
+            if !visited.contains(&portal_exit) {
+                visited.insert(portal_exit);
+                queue.push_back((portal_exit, dist + 1));
+                continue;
+            }
+        }
+
+        for &direction in directions.iter() {
+            let next_point = (current.0 + direction.0, current.1 + direction.1);
+
+            if !visited.contains(&next_point) {
+                if walls.contains(&next_point) {
+                    continue;
+                }
+
+                visited.insert(next_point);
+                queue.push_back((next_point, dist + 1));
+            }
+        }
+    }
+
+    None
+}
+
 #[pymodule]
 fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_direction, m)?)?;
@@ -554,5 +546,6 @@ fn rust_perf(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(explore_n_round_scores, m)?)?;
     m.add_function(wrap_pyfunction!(collect_coins_using_hull, m)?)?;
     m.add_function(wrap_pyfunction!(explore, m)?)?;
+    m.add_function(wrap_pyfunction!(shortest_path, m)?)?;
     Ok(())
 }

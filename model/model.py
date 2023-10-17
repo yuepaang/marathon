@@ -64,10 +64,12 @@ class Model:
             tmp = list()
             for d in delta:
                 pos_tmp = (ap[0] + d[0], ap[1] + d[1])
-                if (not (0 <= pos_tmp[0] < self.map.size[0])
-                        or not (0 <= pos_tmp[1] < self.map.size[1])
-                        or self.map.wall_map[pos_tmp] == 1
-                        or pos_tmp in visited[id]):
+                if (
+                    not (0 <= pos_tmp[0] < self.map.size[0])
+                    or not (0 <= pos_tmp[1] < self.map.size[1])
+                    or self.map.wall_map[pos_tmp] == 1
+                    or pos_tmp in visited[id]
+                ):
                     continue
                 tmp.append(pos_tmp)
             new_pos.append(tmp)
@@ -101,8 +103,7 @@ class Model:
         trace: position of first step
         reward: total reward of chosen route
         exploration: {"reward": max_reward, "trace": the trace of max_reward}
-<<<<<<< HEAD
-        step: 
+        step:
         '''
         if step >= max_step:
             return
@@ -134,7 +135,6 @@ class Model:
         for p in next_pos:
             self.explore(p, map_copy, trace, reward, exploration, visited_copy,
                          step + 1, max_step)
-=======
         step:
         """
         ############# py ##############
@@ -190,7 +190,6 @@ class Model:
         #         step + 1,
         #         max_step,
         #     )
->>>>>>> b04ac3330fcbcfe42979fce12021d976000dfe9d
 
     def certain_pos(self, id: int, pos: tuple):
         """

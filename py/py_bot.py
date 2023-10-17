@@ -100,11 +100,12 @@ def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template)
 
 def defend(
     agent: marathon.Agent,
-    eaten_set,
-    step,
+    input_eaten_set,
     powerup_clock,
-    defender_scatter,
+    other_target,
+    attacker_locations,
 ) -> str:
+    agent_id = agent.get_self_agent().id
     current_pos = (
         agent.get_self_agent().get_pos()["x"],
         agent.get_self_agent().get_pos()["y"],
@@ -113,41 +114,27 @@ def defend(
     # powerup within view
     for powerup in agent.get_powerups():
         if powerup["powerup"] == str(Powerup.SWORD):
-            eaten_set.add((powerup["x"], powerup["y"]))
-        elif (powerup["x"], powerup["y"]) in eaten_set:
-            eaten_set.remove((powerup["x"], powerup["y"]))
-
-    # owned powerup
-    if "passwall" in agent.get_self_agent().powerups:
-        passwall = agent.get_self_agent().powerups["passwall"]
-    else:
-        passwall = 0
-
-    if "shield" in agent.get_self_agent().powerups:
-        shield = agent.get_self_agent().powerups["shield"]
-    else:
-        shield = 0
-
-    # scatter first
-    if step < 7:
-        if agent.get_self_agent().id not in defender_scatter:
-            return rust_perf.get_direction(
-                current_pos,
-                random.choice([(0, 12), (18, 17), (11, 11)]),
-                list(eaten_set),
-            )
-        return rust_perf.get_direction(
-            current_pos,
-            defender_scatter[agent.get_self_agent().id],
-            list(eaten_set),
-        )
+            input_eaten_set.add((powerup["x"], powerup["y"]))
+        elif (powerup["x"], powerup["y"]) in input_eaten_set:
+            input_eaten_set.remove((powerup["x"], powerup["y"]))
 
     # record locations have been arrived
     if current_pos in global_coin_set:
-        eaten_set.add(current_pos)
+        input_eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
-        eaten_set.add(current_pos)
+        input_eaten_set.add(current_pos)
         powerup_clock[current_pos] = 1
+
+    # each agent has its own target coin
+    eaten_set = deepcopy(input_eaten_set)
+    rest_coin_count = len([p for p in global_coin_set if p not in input_eaten_set])
+    if rest_coin_count > 4:
+        for _, p in other_target.items():
+            eaten_set.add(p)
+    # owned powerup
+    passwall = agent.get_self_agent().powerups.get("passwall", 0)
+    shield = agent.get_self_agent().powerups.get("shield", 0)
+    invisibility = agent.get_self_agent().powerups.get("invisibility", 0)
 
     cancel_key = []
     for powerup, clock in powerup_clock.items():
@@ -158,53 +145,47 @@ def defend(
     for k in cancel_key:
         del powerup_clock[k]
 
+    nearest_enemy_dist = 1e8
+    total_dist = 0
+    for ep in attacker_locations:
+        dist = rust_perf.shortest_path(current_pos, ep)
+        total_dist += dist
+        if dist < nearest_enemy_dist:
+            nearest_enemy_dist = dist
+
     other_agent_list = agent.get_other_agents()
-    allies_location = []
-    attacker_location = []
+    # attacker_location = set()
     has_sword = False
     for other_agent in other_agent_list:
-        if other_agent.get_role() == "DEFENDER":
-            allies_location.append((other_agent.x, other_agent.y))
-        else:
-            attacker_location.append((other_agent.x, other_agent.y))
+        if other_agent.get_role() != "DEFENDER":
+            # attacker_location.add((other_agent.x, other_agent.y))
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
     # strategy one (corner)
-    if (len(attacker_location) >= 1 and shield <= 3) or has_sword:
+    if (
+        len(attacker_locations) > 1
+        and shield < 2
+        and invisibility < 2
+        and total_dist < 15
+        and nearest_enemy_dist <= 3
+    ) or has_sword:
         next_move = rust_perf.check_stay_or_not(
-            current_pos, attacker_location, passwall, eaten_set
+            current_pos, list(attacker_locations), passwall, eaten_set
         )
         return next_move
 
-    if agent.get_self_agent().id in [4, 5, 7]:
-        path = rust_perf.collect_coins_using_hull(current_pos, eaten_set)
-        if len(path) > 0:
-            return get_direction(current_pos, path[0])
-        else:
-            path, _ = rust_perf.collect_coins_using_powerup(
-                current_pos,
-                eaten_set,
-                allies_location,
-                attacker_location,
-                passwall,
-            )
-            return get_direction(current_pos, path[0])
-    else:
-        path, _ = rust_perf.collect_coins_using_powerup(
-            current_pos,
-            eaten_set,
-            allies_location,
-            attacker_location,
-            passwall,
-        )
-        if len(path) == 0:
-            return random.choice(ACTIONS)
-        else:
-            next_move = get_direction(current_pos, path[0])
-            for powerup, _ in powerup_clock.items():
-                powerup_clock[powerup] += 1
-            return next_move
+    elif nearest_enemy_dist > 2:
+        # safe
+        attacker_locations = set()
+
+    target_coin, path, _ = rust_perf.collect_coins_using_powerup(
+        current_pos, eaten_set, passwall, attacker_locations
+    )
+    other_target[agent_id] = target_coin
+    for powerup, _ in powerup_clock.items():
+        powerup_clock[powerup] += 1
+    return get_direction(current_pos, path[0])
 
 
 class RealGame(marathon.Game):
@@ -234,34 +215,35 @@ class RealGame(marathon.Game):
 
         # TODO: powerup
         # prepare state
-        attacker_locations = []
-        defender_locations = []
+        attacker_locations = set()
+        defender_locations = set()
         for _, agent_state in data.get_states().items():
             other_agent_list = agent_state.get_other_agents()
             for other_agent in other_agent_list:
                 if other_agent.get_role() == "ATTACKER":
-                    attacker_locations.append(
+                    attacker_locations.add(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
                 else:
-                    defender_locations.append(
+                    defender_locations.add(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
 
+        other_target = {}
         action = {}
         for agent_id, agent_state in data.get_states().items():
             if agent_state.get_role() == "DEFENDER":
                 action[agent_id] = defend(
                     agent_state,
                     self.eaten_set,
-                    self.step,
                     self.powerup_clock,
-                    self.defender_scatter,
+                    other_target,
+                    attacker_locations,
                 )
             else:
                 action[agent_id] = attack(
                     agent_state,
-                    defender_locations,
+                    list(defender_locations),
                     self.powerup_clock,
                     self.explore_paths,
                     self.explore_paths_template,

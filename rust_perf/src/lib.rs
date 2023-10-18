@@ -16,7 +16,7 @@ use algo::bfs;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-use crate::algo::deal_with_enemy_nearby;
+use crate::algo::{deal_with_enemy_nearby, move_enemy};
 
 mod algo;
 mod conf;
@@ -96,13 +96,71 @@ fn get_direction_path(
     Ok(direction_path)
 }
 
+fn compute_centroid(enemies: &Vec<Point>) -> Point {
+    let mut sum_x = 0;
+    let mut sum_y = 0;
+    for &(x, y) in enemies.iter() {
+        sum_x += x;
+        sum_y += y;
+    }
+    (sum_x / enemies.len() as i32, sum_y / enemies.len() as i32)
+}
+
+fn get_diagonal_move(my_position: Point, centroid: Point) -> Point {
+    let (my_x, my_y) = my_position;
+    let (cent_x, cent_y) = centroid;
+
+    // Determine the diagonal direction
+    let possible_moves = [
+        (my_x, my_y + 1), // up
+        (my_x, my_y - 1), // down
+        (my_x - 1, my_y), // left
+        (my_x + 1, my_y), // right
+    ];
+
+    let mut best_move = my_position;
+    let mut min_distance = f32::MAX;
+
+    for &(move_x, move_y) in possible_moves.iter() {
+        let distance = ((move_x - cent_x).pow(2) + (move_y - cent_y).pow(2)) as f32;
+        if distance < min_distance {
+            min_distance = distance;
+            best_move = (move_x, move_y);
+        }
+    }
+
+    best_move
+}
+
+fn get_escape_move(agent: Point, enemies: &Vec<Point>) -> Point {
+    let (ax, ay) = agent;
+
+    // Calculate the average position of enemies
+    let (ex_avg, ey_avg) = enemies
+        .iter()
+        .fold((0, 0), |(sum_x, sum_y), &(x, y)| (sum_x + x, sum_y + y));
+    let ex_avg = ex_avg / enemies.len() as i32;
+    let ey_avg = ey_avg / enemies.len() as i32;
+
+    // Choose a direction to move away from the average position of enemies
+    if ax < ex_avg {
+        return (agent.0 - 1, agent.1);
+    } else if ax > ex_avg {
+        return (agent.0 + 1, agent.1);
+    } else if ay < ey_avg {
+        return (agent.0, agent.1 - 1);
+    } else {
+        return (agent.0, agent.1 + 1);
+    }
+}
+
 #[pyfunction]
 fn check_stay_or_not(
     start: Point,
     mut enemies_position: Vec<Point>,
     pass_wall: usize,
     eaten_coins: HashSet<Point>,
-) -> PyResult<String> {
+) -> PyResult<Vec<Point>> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     let coin_set: HashSet<Point> = conf::COINS
         .par_iter()
@@ -110,6 +168,19 @@ fn check_stay_or_not(
         .filter(|&c| !eaten_coins.contains(c))
         .map(|&c| (c.0, c.1))
         .collect();
+
+    if enemies_position.len() == 2 {
+        let centroid = compute_centroid(&enemies_position);
+        let move_to = get_diagonal_move(start, centroid);
+        let escape_to = get_escape_move(start, &enemies_position);
+
+        if !banned_points.contains(&move_to) {
+            return Ok(vec![move_to]);
+        }
+        if !banned_points.contains(&escape_to) {
+            return Ok(vec![escape_to]);
+        }
+    }
 
     // Calculate the overall direction if the cell is further away from all enemies
     for &(i, j, direction, consider_coin) in &[
@@ -155,7 +226,7 @@ fn check_stay_or_not(
             }
         } else {
             if banned_points.contains(&next) {
-                return Ok(direction.to_string());
+                return Ok(vec![next]);
             }
         }
 
@@ -170,18 +241,18 @@ fn check_stay_or_not(
             }
         }
         if all_away {
-            return Ok(direction.to_string());
+            return Ok(vec![next]);
         }
     }
 
     enemies_position.sort_by_key(|&e| shortest_path(start, e).unwrap());
 
     if enemies_position.len() == 1 && distance(start, enemies_position[0]) == 2 {
-        return Ok("STAY".to_string());
+        return Ok(vec![start]);
     }
     if enemies_position.len() == 2 {
         if distance(start, enemies_position[0]) == 2 && distance(start, enemies_position[1]) > 2 {
-            return Ok("STAY".to_string());
+            return Ok(vec![start]);
         }
     }
 
@@ -193,7 +264,7 @@ fn check_stay_or_not(
         }
     }
     if is_diag {
-        return Ok("STAY".to_string());
+        return Ok(vec![start]);
     }
 
     for &(i, j, direction) in &[
@@ -213,7 +284,7 @@ fn check_stay_or_not(
             //     "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
             //     start, enemies_position, next
             // );
-            return Ok(direction.to_string());
+            return Ok(vec![next]);
         }
     }
 
@@ -223,7 +294,7 @@ fn check_stay_or_not(
     );
 
     // TODO: stay?
-    Ok("STAY".to_string())
+    Ok(vec![start])
 }
 
 // BASELINE 170 round end the game
@@ -278,7 +349,7 @@ fn catch_enemies_using_powerup(
 ) -> PyResult<Vec<Point>> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     let mut chase_path = Vec::new();
-    enemies.sort_by_key(|&e| distance(start, e));
+    enemies.sort_by_key(|&e| shortest_path(start, e).unwrap());
     if enemies[0] == start {
         for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
             let new_hp = (enemies[0].0 + i, enemies[0].1 + j);
@@ -293,7 +364,7 @@ fn catch_enemies_using_powerup(
             enemies[0],
             pass_wall,
             &banned_points,
-            // &HashSet::new(),
+            &HashMap::new(),
         )
         .unwrap_or(vec![]);
     }
@@ -348,21 +419,20 @@ fn collect_coins_using_hull(start: Point, eaten_coins: HashSet<Point>) -> PyResu
 // BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn collect_coins_using_powerup(
+    agent_id: usize,
     mut start: Point,
     mut eaten_coins: HashSet<Point>,
     mut pass_wall: usize,
     enemies_position: HashSet<Point>,
-) -> PyResult<(Point, Vec<Point>, usize)> {
+    openess_map: HashMap<Point, i32>,
+) -> PyResult<(Vec<Point>, Vec<Point>, usize)> {
     let origin = start.clone();
-    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    // banned_points.extend(enemies_position.clone());
-    // let start_index = conf::PORTALS
-    //     .par_iter()
-    //     .position_first(|portal| start.0 == portal.0 && start.1 == portal.1)
-    //     .unwrap_or(99);
-    // if start_index != 99 {
-    //     banned_points.insert(conf::PORTALS_DEST[start_index]);
-    // }
+    // try not using portals
+    let mut banned_points: HashSet<_> = conf::WALLS
+        .par_iter()
+        .chain(conf::PORTALS.par_iter())
+        .cloned()
+        .collect();
     for &e in enemies_position.iter() {
         for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
             let next = (e.0 + i, e.1 + j);
@@ -379,7 +449,7 @@ fn collect_coins_using_powerup(
     let mut search_depth = 0;
     let mut agent_coins_score = 0;
     let mut total_path = Vec::new();
-    let mut first_coin = (0, 0);
+    let mut first_coin_group = Vec::new();
 
     // find the potential move with greatest coin score
     loop {
@@ -391,67 +461,71 @@ fn collect_coins_using_powerup(
             .map(|x| (x.0, x.1))
             .collect();
 
-        if search_depth > 10 || positive_targets.is_empty() {
+        if search_depth > 10 {
             break;
         }
 
-        let mut paths: Vec<Vec<Point>> = positive_targets
+        let paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
             .filter_map(|&target| {
-                algo::a_star_search_power(start, target, pass_wall, &banned_points)
+                algo::a_star_search_power(start, target, pass_wall, &banned_points, &openess_map)
             })
             .collect();
 
-        // TODO: away from potential enemies
-        if paths.is_empty() && total_path.is_empty() {
+        // there is no potential target
+        if paths.is_empty() && search_depth == 1 {
             // println!(
-            //     "NO TARGET! current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
+            //     "agent {},NO TARGET! o: {:?} current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
+            //     agent_id,
+            //     origin,
             //     start,
             //     positive_targets,
             //     eaten_coins.len(),
             //     enemies_position,
             // );
-            paths = conf::DEFENDER_BASE
-                .par_iter()
-                .chain(conf::ATTACKER_BASE.par_iter())
-                .filter_map(|&p| {
-                    algo::a_star_search_power(
-                        start,
-                        p,
-                        pass_wall,
-                        &banned_points,
-                        // &enemies_position,
-                    )
-                })
-                .collect();
+            return Ok((first_coin_group, total_path, agent_coins_score));
+            // paths = conf::DEFENDER_BASE
+            //     .par_iter()
+            //     .chain(conf::ATTACKER_BASE.par_iter())
+            //     .filter_map(|&p| {
+            //         algo::a_star_search_power(
+            //             start,
+            //             p,
+            //             pass_wall,
+            //             &banned_points,
+            //             &enemies_position,
+            //         )
+            //     })
+            //     .collect();
         }
 
-        if paths.is_empty() && total_path.is_empty() {
-            for &e in enemies_position.iter() {
-                if shortest_path(start, e).unwrap() > 2 {
-                    continue;
-                }
-                for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
-                    let next = (origin.0 + i, origin.1 + j);
-                    if algo::check_out_of_bound(next) {
-                        continue;
-                    }
-                    if shortest_path(next, e).unwrap() > shortest_path(origin, e).unwrap() {
-                        total_path.push(next);
-                        return Ok((first_coin, total_path, agent_coins_score));
-                    }
-                }
-            }
-            println!("No strategy for now: JUST STAY.");
-            println!(
-                "o:{:?}, current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
-                origin,
-                start,
-                positive_targets,
-                eaten_coins.len(),
-                enemies_position,
-            );
-        }
+        // if paths.is_empty() && search_depth == 1 {
+        //     for &e in enemies_position.iter() {
+        //         if shortest_path(start, e).unwrap() > 2 {
+        //             continue;
+        //         }
+        //         for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+        //             let next = (origin.0 + i, origin.1 + j);
+        //             if algo::check_out_of_bound(next) {
+        //                 continue;
+        //             }
+        //             if shortest_path(next, e).unwrap() > shortest_path(origin, e).unwrap() {
+        //                 total_path.push(next);
+        //                 return Ok((first_coin_group, total_path, agent_coins_score));
+        //             }
+        //         }
+        //     }
+        //     println!("No strategy for now: JUST STAY.");
+        //     println!(
+        //         "agent {}, o:{:?}, current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
+        //         agent_id,
+        //         origin,
+        //         start,
+        //         positive_targets,
+        //         eaten_coins.len(),
+        //         enemies_position,
+        //     );
+        // }
 
         if paths.is_empty() {
             break;
@@ -466,19 +540,25 @@ fn collect_coins_using_powerup(
         total_path.extend_from_slice(&sp[..sp.len()]);
 
         start = *sp.last().unwrap();
-        if search_depth == 1 {
-            first_coin = start;
-        }
+        first_coin_group.push(start.clone());
         eaten_coins.insert((start.0, start.1));
         agent_coins_score += 2;
         pass_wall -= sp.len();
     }
 
     if total_path.len() == 0 {
-        println!("no total path generated.")
+        println!("no total path generated.");
+        println!(
+            "!!!!!!!!!agent {}, origin:{:?}, current position: {:?}, eaten number: {:?}, enemies: {:?}",
+            agent_id,
+            origin,
+            start,
+            eaten_coins.len(),
+            enemies_position,
+        );
     }
 
-    Ok((first_coin, total_path, agent_coins_score))
+    Ok((first_coin_group, total_path, agent_coins_score))
 }
 
 // PERF: all agents parallel

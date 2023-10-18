@@ -478,7 +478,7 @@ def use_defender(
         shield == 0
         and invisibility == 0
         and total_dist < 10
-        or nearest_enemy_dist < 3
+        or nearest_enemy_dist < 2
         or current_pos in attacker_list
     ) or has_sword:
         next_move = rust_perf.check_stay_or_not(

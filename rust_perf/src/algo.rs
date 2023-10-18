@@ -265,7 +265,6 @@ pub fn a_star_search_power(
     end: Point,
     passwall: usize,
     banned_points: &HashSet<Point>,
-    enemies: &HashSet<Point>,
 ) -> Option<Vec<Point>> {
     let mut portals = HashMap::new();
     for (idx, portal) in conf::PORTALS.iter().enumerate() {
@@ -311,14 +310,14 @@ pub fn a_star_search_power(
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (Direction::Stay, point));
                 g_scores.insert(next, tentative_g_score);
-                let mut penalty = 0;
-                for &e in enemies.iter() {
-                    let e_dist = shortest_path(next, e).unwrap();
-                    if e_dist < 5 {
-                        penalty += 5 - e_dist;
-                    }
-                }
-                let f_score = tentative_g_score + crate::distance(next, end) + penalty;
+                // let mut penalty = 0;
+                // for &e in enemies.iter() {
+                //     let e_dist = shortest_path(next, e).unwrap();
+                //     if e_dist < 5 {
+                //         penalty += 5 - e_dist;
+                //     }
+                // }
+                let f_score = tentative_g_score + crate::distance(next, end);
                 if pw == 0 {
                     pw = 0;
                 } else {

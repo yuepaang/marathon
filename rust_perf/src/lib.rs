@@ -283,7 +283,7 @@ fn catch_enemies_using_powerup(
             enemies[0],
             pass_wall,
             &banned_points,
-            &HashSet::new(),
+            // &HashSet::new(),
         )
         .unwrap_or(vec![]);
     }
@@ -374,20 +374,14 @@ fn collect_coins_using_powerup(
             .map(|x| (x.0, x.1))
             .collect();
 
-        if search_depth > 9 || positive_targets.is_empty() {
+        if search_depth > 10 || positive_targets.is_empty() {
             break;
         }
 
         let mut paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
             .filter_map(|&target| {
-                algo::a_star_search_power(
-                    start,
-                    target,
-                    pass_wall,
-                    &banned_points,
-                    &enemies_position,
-                )
+                algo::a_star_search_power(start, target, pass_wall, &banned_points)
             })
             .collect();
 
@@ -408,7 +402,7 @@ fn collect_coins_using_powerup(
                         p,
                         pass_wall,
                         &banned_points,
-                        &enemies_position,
+                        // &enemies_position,
                     )
                 })
                 .collect();

@@ -106,6 +106,7 @@ fn check_stay_or_not(
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     let coin_set: HashSet<Point> = conf::COINS
         .par_iter()
+        .chain(conf::POWERUPS.par_iter())
         .filter(|&c| !eaten_coins.contains(c))
         .map(|&c| (c.0, c.1))
         .collect();
@@ -136,30 +137,34 @@ fn check_stay_or_not(
         }
 
         // PORTAL MOVE
+        let start_index = conf::PORTALS
+            .iter()
+            .position(|portal| start.0 == portal.0 && start.1 == portal.1)
+            .unwrap_or(99);
         let index = conf::PORTALS
             .iter()
             .position(|portal| next.0 == portal.0 && next.1 == portal.1)
             .unwrap_or(99);
-        if index != 99 {
+        // DO NOT GO BACK after using portal
+        if index != 99 && start_index != 99 {
             next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
         }
         if pass_wall == 0 {
             if banned_points.contains(&next) {
                 continue;
             }
+        } else {
+            if banned_points.contains(&next) {
+                return Ok(direction.to_string());
+            }
         }
 
         for enemy in &enemies_position {
-            if shortest_path(start, *enemy).unwrap() > 2 {
+            if shortest_path(start, *enemy).unwrap() > 5 {
                 continue;
             }
-            // let new_path = algo::a_star_search(next, enemy).unwrap();
-            // let old_path = algo::a_star_search(start, enemy).unwrap();
-            // if new_path.len() <= old_path.len() {
-            //     all_away = false;
-            // }
-            let new_path = distance(next, *enemy);
-            let old_path = distance(start, *enemy);
+            let new_path = shortest_path(next, *enemy).unwrap();
+            let old_path = shortest_path(start, *enemy).unwrap();
             if new_path <= old_path {
                 all_away = false;
             }
@@ -169,7 +174,7 @@ fn check_stay_or_not(
         }
     }
 
-    enemies_position.sort_by_key(|&e| distance(start, e));
+    enemies_position.sort_by_key(|&e| shortest_path(start, e).unwrap());
 
     if enemies_position.len() == 1 && distance(start, enemies_position[0]) == 2 {
         return Ok("STAY".to_string());
@@ -198,7 +203,12 @@ fn check_stay_or_not(
         (0, -1, "UP"),
     ] {
         let next = (start.0 + i, start.1 + j);
-        if algo::check_valid_move(start) < algo::check_valid_move(next) {
+        // if algo::check_valid_move(start) < algo::check_valid_move(next)
+        //     && shortest_path(next, enemies_position[0]).unwrap()
+        //         > shortest_path(start, enemies_position[0]).unwrap()
+        if shortest_path(next, enemies_position[0]).unwrap()
+            > shortest_path(start, enemies_position[0]).unwrap()
+        {
             // println!(
             //     "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
             //     start, enemies_position, next
@@ -346,6 +356,13 @@ fn collect_coins_using_powerup(
     let origin = start.clone();
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     // banned_points.extend(enemies_position.clone());
+    // let start_index = conf::PORTALS
+    //     .par_iter()
+    //     .position_first(|portal| start.0 == portal.0 && start.1 == portal.1)
+    //     .unwrap_or(99);
+    // if start_index != 99 {
+    //     banned_points.insert(conf::PORTALS_DEST[start_index]);
+    // }
     for &e in enemies_position.iter() {
         for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
             let next = (e.0 + i, e.1 + j);
@@ -394,8 +411,9 @@ fn collect_coins_using_powerup(
             //     eaten_coins.len(),
             //     enemies_position,
             // );
-            paths = conf::PORTALS
+            paths = conf::DEFENDER_BASE
                 .par_iter()
+                .chain(conf::ATTACKER_BASE.par_iter())
                 .filter_map(|&p| {
                     algo::a_star_search_power(
                         start,
@@ -408,9 +426,34 @@ fn collect_coins_using_powerup(
                 .collect();
         }
 
-        if paths.is_empty() {
+        if paths.is_empty() && total_path.is_empty() {
+            for &e in enemies_position.iter() {
+                if shortest_path(start, e).unwrap() > 2 {
+                    continue;
+                }
+                for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+                    let next = (origin.0 + i, origin.1 + j);
+                    if algo::check_out_of_bound(next) {
+                        continue;
+                    }
+                    if shortest_path(next, e).unwrap() > shortest_path(origin, e).unwrap() {
+                        total_path.push(next);
+                        return Ok((first_coin, total_path, agent_coins_score));
+                    }
+                }
+            }
             println!("No strategy for now: JUST STAY.");
-            total_path.push(origin);
+            println!(
+                "o:{:?}, current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
+                origin,
+                start,
+                positive_targets,
+                eaten_coins.len(),
+                enemies_position,
+            );
+        }
+
+        if paths.is_empty() {
             break;
         }
 
@@ -419,11 +462,6 @@ fn collect_coins_using_powerup(
             .filter(|path| path.len() > 0)
             .min_by_key(|path| path.len())
             .unwrap();
-        // if sp.len() == 0 {
-        //     println!("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&. {:?}, {:?}", sp, paths);
-        //     total_path.push(origin);
-        //     break;
-        // }
 
         total_path.extend_from_slice(&sp[..sp.len()]);
 

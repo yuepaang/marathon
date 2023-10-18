@@ -411,7 +411,6 @@ def use_defender(
     powerup_clock,
     other_target,
     attacker_locations,
-    choices,
 ) -> str:
     # safe phrase
     agent_id = agent["self_agent"]["id"]
@@ -475,12 +474,11 @@ def use_defender(
     # run away strategy
     if (
         # len(attacker_locations) > 1
-        shield == 0
-        and invisibility == 0
-        and total_dist < 10
-        or nearest_enemy_dist < 2
+        (shield == 0 and invisibility == 0 and enemy_nearby_count > 1)
         or current_pos in attacker_list
-    ) or has_sword:
+    ) or (
+        shield > 0 and has_sword and nearest_enemy_dist < 3 and enemy_nearby_count > 1
+    ):
         next_move = rust_perf.check_stay_or_not(
             current_pos, attacker_list, passwall, eaten_set
         )
@@ -497,19 +495,19 @@ def use_defender(
     target_coin, path, _ = rust_perf.collect_coins_using_powerup(
         current_pos, eaten_set, passwall, set(attacker_list)
     )
-    if nearest_enemy_dist == 1:
-        print("???")
-        print("id: ", agent_id)
-        print(path)
-        print(current_pos)
-        print(attacker_locations)
-        print(invisibility)
-        print(has_sword)
-        print(nearest_enemy_dist)
-        print("score:", agent["self_agent"]["score"])
-        print()
-        print()
-        # raise Exception("e")
+    # if nearest_enemy_dist == 1:
+    #     print("???")
+    #     print("id: ", agent_id)
+    #     print(path)
+    #     print(current_pos)
+    #     print(attacker_locations)
+    #     print(invisibility)
+    #     print(has_sword)
+    #     print(nearest_enemy_dist)
+    #     print("score:", agent["self_agent"]["score"])
+    #     print()
+    #     print()
+    # raise Exception("e")
     other_target[agent_id] = target_coin
     for powerup, _ in powerup_clock.items():
         powerup_clock[powerup] += 1
@@ -631,7 +629,6 @@ for seed in seeds:
                 other_target,
                 # attacker_locations,
                 predicted_attacker_pos,
-                set(islands),
             )
             for _id in defender_state.keys()
         }

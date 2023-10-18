@@ -193,20 +193,21 @@ def defend(
     other_agent_list = agent.get_other_agents()
     # attacker_location = set()
     has_sword = False
+    enemy_nearby_count = 0
     for other_agent in other_agent_list:
         if other_agent.get_role() != "DEFENDER":
+            enemy_nearby_count += 1
             # attacker_location.add((other_agent.x, other_agent.y))
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
     attacker_list = [v for v in attacker_locations.values()]
-    # strategy one (corner)
     if (
-        shield == 0
-        and invisibility == 0
-        and total_dist < 10
-        or nearest_enemy_dist < 3
+        # len(attacker_locations) > 1
+        (shield == 0 and invisibility == 0 and enemy_nearby_count > 1)
         or current_pos in attacker_list
+    ) or (
+        shield > 0 and has_sword and nearest_enemy_dist < 3 and enemy_nearby_count > 1
     ):
         next_move = rust_perf.check_stay_or_not(
             current_pos, attacker_list, passwall, eaten_set

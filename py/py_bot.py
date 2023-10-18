@@ -17,16 +17,35 @@ with open("map.json") as f:
 global_coin_set = set()
 global_powerup_set = set()
 global_walls_list = []
+maze = [[0 for _ in range(24)] for _ in range(24)]
 for cell in global_map:
     x = cell["x"]
     y = cell["y"]
     cell_type = cell["type"]
+    maze[x][y] = cell_type
+
     if cell_type == "COIN":
         global_coin_set.add((x, y))
     if cell_type == "POWERUP":
         global_powerup_set.add((x, y))
     if cell_type == "WALL":
         global_walls_list.append((x, y))
+
+
+def openness(x, y, grid):
+    directions = [(0, 1), (1, 0), (-1, 0), (0, -1)]
+    count = 0
+    for dx, dy in directions:
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < len(grid) and 0 <= ny < len(grid[0]) and grid[nx][ny] != "WALL":
+            count += 1
+    return count
+
+
+openness_map = dict()
+for i in range(24):
+    for j in range(24):
+        openness_map[(i, j)] = openness(i, j, maze)
 
 
 def get_distance(pos1, pos2):
@@ -211,7 +230,7 @@ def defend(
 
     if enemy_nearby_count < 2:
         target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
-            current_pos, eaten_set, passwall, set(attacker_list)
+            current_pos, eaten_set, passwall, set(attacker_list), openness_map
         )
         other_target[agent_id] = target_coin_group
         return get_direction(current_pos, path[0])

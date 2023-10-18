@@ -150,6 +150,9 @@ fn check_stay_or_not(
         }
 
         for enemy in &enemies_position {
+            if shortest_path(start, *enemy).unwrap() > 2 {
+                continue;
+            }
             // let new_path = algo::a_star_search(next, enemy).unwrap();
             // let old_path = algo::a_star_search(start, enemy).unwrap();
             // if new_path.len() <= old_path.len() {
@@ -204,10 +207,10 @@ fn check_stay_or_not(
         }
     }
 
-    // println!(
-    //     "NO STRATEGY! current: {:?} enemies: {:?}",
-    //     start, enemies_position
-    // );
+    println!(
+        "NO RUN AWAY! current: {:?} enemies: {:?}",
+        start, enemies_position
+    );
 
     // TODO: stay?
     Ok("STAY".to_string())
@@ -275,8 +278,14 @@ fn catch_enemies_using_powerup(
             }
         }
     } else {
-        chase_path = algo::a_star_search_power(start, enemies[0], pass_wall, &banned_points)
-            .unwrap_or(vec![]);
+        chase_path = algo::a_star_search_power(
+            start,
+            enemies[0],
+            pass_wall,
+            &banned_points,
+            &HashSet::new(),
+        )
+        .unwrap_or(vec![]);
     }
     return Ok(chase_path);
 }
@@ -365,29 +374,43 @@ fn collect_coins_using_powerup(
             .map(|x| (x.0, x.1))
             .collect();
 
-        if search_depth > 10 || positive_targets.is_empty() {
+        if search_depth > 9 || positive_targets.is_empty() {
             break;
         }
 
         let mut paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
             .filter_map(|&target| {
-                algo::a_star_search_power(start, target, pass_wall, &banned_points)
+                algo::a_star_search_power(
+                    start,
+                    target,
+                    pass_wall,
+                    &banned_points,
+                    &enemies_position,
+                )
             })
             .collect();
 
         // TODO: away from potential enemies
-        if paths.is_empty() {
-            println!(
-                "NO TARGET! current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
-                start,
-                positive_targets,
-                eaten_coins.len(),
-                enemies_position,
-            );
+        if paths.is_empty() && total_path.is_empty() {
+            // println!(
+            //     "NO TARGET! current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
+            //     start,
+            //     positive_targets,
+            //     eaten_coins.len(),
+            //     enemies_position,
+            // );
             paths = conf::PORTALS
                 .par_iter()
-                .filter_map(|&p| algo::a_star_search_power(start, p, pass_wall, &banned_points))
+                .filter_map(|&p| {
+                    algo::a_star_search_power(
+                        start,
+                        p,
+                        pass_wall,
+                        &banned_points,
+                        &enemies_position,
+                    )
+                })
                 .collect();
         }
 

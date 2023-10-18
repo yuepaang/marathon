@@ -1,4 +1,5 @@
 from copy import deepcopy
+from itertools import product
 import json
 import argparse
 import random
@@ -15,6 +16,7 @@ with open("map.json") as f:
 
 global_coin_set = set()
 global_powerup_set = set()
+global_walls_list = []
 for cell in global_map:
     x = cell["x"]
     y = cell["y"]
@@ -23,6 +25,8 @@ for cell in global_map:
         global_coin_set.add((x, y))
     if cell_type == "POWERUP":
         global_powerup_set.add((x, y))
+    if cell_type == "WALL":
+        global_walls_list.append((x, y))
 
 
 def get_distance(pos1, pos2):
@@ -45,6 +49,39 @@ def get_direction(curr, next):
         elif true_next[1] == curr[1] - 1:
             return "UP"
     return "NO"
+
+
+def get_all_nearby_pos(agent_pos: dict, map_in_heart: list):
+    """
+    agent_pos: {id1: (x1, y1), id2: (x2, y2)}
+    """
+    delta = [[0, 1], [0, -1], [1, 0], [-1, 0]]
+    new_pos = list()
+    ids = list()
+    for id, ap in agent_pos.items():
+        ids.append(id)
+        tmp = list()
+        for d in delta:
+            pos_tmp = (ap[0] + d[0], ap[1] + d[1])
+            if (
+                not (0 <= pos_tmp[0] < 24)
+                or not (0 <= pos_tmp[1] < 24)
+                or map_in_heart[pos_tmp[0]][pos_tmp[1]] < 0
+            ):
+                continue
+            tmp.append(pos_tmp)
+        new_pos.append(tmp)
+
+    comb_pos = product(*new_pos)
+
+    next_pos = list()
+    for pos in comb_pos:
+        pos_dict = dict()
+        for i in range(len(ids)):
+            pos_dict[ids[i]] = pos[i]
+        next_pos.append(pos_dict)
+
+    return next_pos
 
 
 def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template) -> str:
@@ -147,7 +184,7 @@ def defend(
 
     nearest_enemy_dist = 1e8
     total_dist = 0
-    for ep in attacker_locations:
+    for _, ep in attacker_locations.items():
         dist = rust_perf.shortest_path(current_pos, ep)
         total_dist += dist
         if dist < nearest_enemy_dist:
@@ -162,25 +199,22 @@ def defend(
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
+    attacker_list = [v for v in attacker_locations.values()]
     # strategy one (corner)
     if (
-        len(attacker_locations) > 1
-        and shield < 2
-        and invisibility < 2
-        and total_dist < 15
-        and nearest_enemy_dist <= 3
-    ) or has_sword:
+        shield == 0
+        and invisibility == 0
+        and total_dist < 10
+        or nearest_enemy_dist < 3
+        or current_pos in attacker_list
+    ):
         next_move = rust_perf.check_stay_or_not(
-            current_pos, list(attacker_locations), passwall, eaten_set
+            current_pos, attacker_list, passwall, eaten_set
         )
         return next_move
 
-    elif nearest_enemy_dist > 2:
-        # safe
-        attacker_locations = set()
-
     target_coin, path, _ = rust_perf.collect_coins_using_powerup(
-        current_pos, eaten_set, passwall, attacker_locations
+        current_pos, eaten_set, passwall, set(attacker_list)
     )
     other_target[agent_id] = target_coin
     for powerup, _ in powerup_clock.items():
@@ -195,6 +229,11 @@ class RealGame(marathon.Game):
         self.eaten_set = set()
         self.powerup_clock = {}
         self.defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
+        self.map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
+
+        for x, y in global_walls_list:
+            self.map_in_heart[x][y] = -1.0
+        self.predicted_attacker_pos = {0: (22, 0), 1: (22, 1), 2: (23, 0), 3: (23, 1)}
 
         self.explore_paths_template = {
             0: [(i, 0) for i in range(21, 0, -1)] + [(1, i) for i in range(1, 23)],
@@ -215,19 +254,37 @@ class RealGame(marathon.Game):
 
         # TODO: powerup
         # prepare state
-        attacker_locations = set()
+        attacker_locations = dict()
         defender_locations = set()
-        for _, agent_state in data.get_states().items():
+        my_pos = {}
+
+        for k, agent_state in data.get_states().items():
+            my_pos[int(k)] = (
+                agent_state.get_self_agent().get_pos()["x"],
+                agent_state.get_self_agent().get_pos()["y"],
+            )
             other_agent_list = agent_state.get_other_agents()
             for other_agent in other_agent_list:
                 if other_agent.get_role() == "ATTACKER":
-                    attacker_locations.add(
-                        (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
+                    attacker_locations[int(other_agent.id)] = (
+                        other_agent.get_pos()["x"],
+                        other_agent.get_pos()["y"],
+                    )
+                    self.predicted_attacker_pos[int(other_agent.id)] = (
+                        other_agent.get_pos()["x"],
+                        other_agent.get_pos()["y"],
                     )
                 else:
                     defender_locations.add(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
+
+        all_pos = get_all_nearby_pos(self.predicted_attacker_pos, self.map_in_heart)
+        score_vec = rust_perf.predict_enemy([0, 1, 2, 3], all_pos, my_pos, {}, 0)
+        self.predicted_attacker_pos = all_pos[score_vec.index(max(score_vec))]
+
+        for k, v in attacker_locations.items():
+            self.predicted_attacker_pos[k] = v
 
         other_target = {}
         action = {}
@@ -238,7 +295,7 @@ class RealGame(marathon.Game):
                     self.eaten_set,
                     self.powerup_clock,
                     other_target,
-                    attacker_locations,
+                    self.predicted_attacker_pos,
                 )
             else:
                 action[agent_id] = attack(

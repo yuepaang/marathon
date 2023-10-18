@@ -247,9 +247,21 @@ def closest_island(i, j, choices):
     return (closest, recommended_point, distance)
 
 
-# 16 islands
-islands = hull(maze)
-print(len(islands))
+def longest_island(i, j, choices):
+    closest = None
+    recommended_point = None
+    distance = 0
+    #    if random.randint(1,3) == 1:
+    for island in choices:
+        for corner in island.get_vertices():
+            (ci, cj) = corner
+            d = (i - ci) ** 2 + (j - cj) ** 2
+            if d > distance:
+                closest = island
+                distance = d
+                recommended_point = (ci, cj)
+    return (closest, recommended_point, distance)
+
 
 # pre calculate real distance
 # with open("dist.csv", "w", encoding="utf-8") as f:
@@ -270,18 +282,18 @@ print(len(islands))
 # raise Exception("e")
 
 # load shortest path using astar with portals
-dist_map = defaultdict(dict)
-with open("dist.csv", "r", encoding="utf-8") as f:
-    for line in f.readlines():
-        fields = line.split("$")
-        dist_map[eval(fields[0])][eval(fields[1])] = int(fields[2])
+# dist_map = defaultdict(dict)
+# with open("dist.csv", "r", encoding="utf-8") as f:
+#     for line in f.readlines():
+#         fields = line.split("$")
+#         dist_map[eval(fields[0])][eval(fields[1])] = int(fields[2])
 
 
-def get_distance(pos1, pos2):
-    if pos1 in dist_map:
-        if pos2 in dist_map[pos1]:
-            return dist_map[pos1][pos2]
-    return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+# def get_distance(pos1, pos2):
+#     if pos1 in dist_map:
+#         if pos2 in dist_map[pos1]:
+#             return dist_map[pos1][pos2]
+#     return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
 
 explore_paths_template = {
@@ -399,6 +411,7 @@ def use_defender(
     powerup_clock,
     other_target,
     attacker_locations,
+    choices,
 ) -> str:
     # safe phrase
     agent_id = agent["self_agent"]["id"]
@@ -450,8 +463,10 @@ def use_defender(
         if dist < nearest_enemy_dist:
             nearest_enemy_dist = dist
 
+    enemy_nearby_count = 0
     for other_agent in other_agent_list:
         if other_agent["role"] != "DEFENDER":
+            enemy_nearby_count += 1
             # attacker_location.add(other_pos)
             if "sword" in other_agent["powerups"]:
                 has_sword = True
@@ -459,16 +474,13 @@ def use_defender(
     attacker_list = [v for v in attacker_locations.values()]
     # run away strategy
     if (
-        (
-            # len(attacker_locations) > 1
-            shield < 2
-            and invisibility < 2
-            and total_dist < 10
-            or nearest_enemy_dist < 3
-        )
-        or has_sword
+        # len(attacker_locations) > 1
+        shield == 0
+        and invisibility == 0
+        and total_dist < 10
+        or nearest_enemy_dist < 3
         or current_pos in attacker_list
-    ):
+    ) or has_sword:
         next_move = rust_perf.check_stay_or_not(
             current_pos, attacker_list, passwall, eaten_set
         )
@@ -514,69 +526,47 @@ game = Game(map)
 win_count = 0
 attacker_score = 0
 defender_score = 0
-seeds = [random.randint(0, 1000000) for _ in range(5)]
-seeds = [741321]
+seeds = [random.randint(0, 1000000) for _ in range(2)]
+# seeds = [741321]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
 
     eatten_set = set()
     step = 0
     powerup_clock = {}
-    defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
     start_game_time = time.time()
     map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
     for x, y in global_walls_list:
         map_in_heart[x][y] = -1.0
     predicted_attacker_pos = {0: (22, 0), 1: (22, 1), 2: (23, 0), 3: (23, 1)}
 
+    # 16 islands
+    islands = hull(maze)
+    print(len(islands))
+
     # game loop
-    prev_score = 0
     while not game.is_over():
         # get game state for player:
-        total_defender_score = 0
         attacker_state = game.get_agent_states_by_player("attacker")
         defender_state = game.get_agent_states_by_player("defender")
 
-        for _, v in defender_state.items():
-            total_defender_score += v["self_agent"]["score"]
-        print(
-            "a",
-            [
-                (v["self_agent"]["x"], v["self_agent"]["y"])
-                for _, v in attacker_state.items()
-            ],
-            [v["self_agent"]["score"] for _, v in attacker_state.items()],
-        )
-        print(
-            "d",
-            [
-                (v["self_agent"]["x"], v["self_agent"]["y"])
-                for _, v in defender_state.items()
-            ],
-            [v["self_agent"]["score"] for _, v in defender_state.items()],
-        )
-        if total_defender_score >= prev_score:
-            prev_score = total_defender_score
-        else:
-            print(prev_score)
-            print(total_defender_score)
-            print(defender_state)
-            print("--------")
-            print(attacker_state)
-
-            print(
-                [
-                    (v["self_agent"]["x"], v["self_agent"]["y"])
-                    for _, v in attacker_state.items()
-                ]
-            )
-            print(
-                [
-                    (v["self_agent"]["x"], v["self_agent"]["y"])
-                    for _, v in defender_state.items()
-                ]
-            )
-            raise Exception("e")
+        # print(
+        #     "a",
+        #     [
+        #         (k, v["self_agent"]["x"], v["self_agent"]["y"])
+        #         for k, v in attacker_state.items()
+        #     ],
+        #     [v["self_agent"]["score"] for _, v in attacker_state.items()],
+        # )
+        # print(
+        #     "d",
+        #     [
+        #         (k, v["self_agent"]["x"], v["self_agent"]["y"])
+        #         for k, v in defender_state.items()
+        #     ],
+        #     [v["self_agent"]["score"] for _, v in defender_state.items()],
+        # )
+        # print("p", predicted_attacker_pos)
 
         attacker_locations = set()
         defender_locations = set()
@@ -602,17 +592,20 @@ for seed in seeds:
         # }
 
         my_pos = {}
-        attacker_locations = set()
+        attacker_locations = dict()
         for k, v in defender_state.items():
             my_pos[int(k)] = (v["self_agent"]["x"], v["self_agent"]["y"])
             other_agent_list = v["other_agents"]
             for other_agent in other_agent_list:
                 if other_agent["role"] == "ATTACKER":
-                    attacker_locations.add((other_agent["x"], other_agent["y"]))
-                    predicted_attacker_pos[int(other_agent["id"])] = (
+                    attacker_locations[int(other_agent["id"])] = (
                         other_agent["x"],
                         other_agent["y"],
                     )
+                    # predicted_attacker_pos[int(other_agent["id"])] = (
+                    #     other_agent["x"],
+                    #     other_agent["y"],
+                    # )
 
         all_pos = get_all_nearby_pos(predicted_attacker_pos, map_in_heart)
         # print(all_pos)
@@ -624,6 +617,8 @@ for seed in seeds:
         # print(time.time() - start)
         # print(score_vec)
         predicted_attacker_pos = all_pos[score_vec.index(max(score_vec))]
+        for k, v in attacker_locations.items():
+            predicted_attacker_pos[k] = v
         # print(predicted_attacker_pos)
         # raise Exception("e")
 
@@ -636,6 +631,7 @@ for seed in seeds:
                 other_target,
                 # attacker_locations,
                 predicted_attacker_pos,
+                set(islands),
             )
             for _id in defender_state.keys()
         }

@@ -369,7 +369,7 @@ fn catch_enemies_using_powerup(
     let chase_path;
     enemies.sort_by_key(|&e| shortest_path(start, e).unwrap());
     if !move_surround {
-        println!("chase, start: {:?} enemies: {:?}", start, enemies);
+        // println!("chase, start: {:?} enemies: {:?}", start, enemies);
         chase_path = algo::a_star_search_power(
             start,
             enemies[0],
@@ -381,14 +381,14 @@ fn catch_enemies_using_powerup(
         .unwrap_or(vec![]);
     } else {
         let move_direction = defender_next_move.get(&enemies[0]).unwrap();
-        println!(
-            "surround, start: {:?} enemies: {:?}",
-            start,
-            (
-                enemies[0].0 + move_direction.0 * 3,
-                enemies[0].1 + move_direction.1 * 3,
-            ),
-        );
+        // println!(
+        //     "surround, start: {:?} enemies: {:?}",
+        //     start,
+        //     (
+        //         enemies[0].0 + move_direction.0 * 3,
+        //         enemies[0].1 + move_direction.1 * 3,
+        //     ),
+        // );
         chase_path = algo::a_star_search_power(
             start,
             (

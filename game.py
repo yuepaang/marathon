@@ -1,4 +1,3 @@
-
 """
 - 两个AI程序各自控制N个agent在一个网格的地图中进行比拼
 - 比赛分为攻守两方，防守方需要在控制多个agent不断探索地图，并获得分数奖励的同时，尽可能躲避攻击方的追击；攻击方需要控制多个agent尽可能的追击并抓获防守方，以此获得分数奖励；
@@ -29,7 +28,6 @@
     - 到达最大回合数上限
 """
 
-
 from enum import Enum, auto
 from typing import List, Dict, Tuple
 from collections import defaultdict
@@ -41,6 +39,7 @@ import logging
 
 logger = logging.getLogger('game')
 
+
 class CellType(Enum):
     WALL = auto()
     PORTAL = auto()
@@ -48,6 +47,7 @@ class CellType(Enum):
     POWERUP = auto()
     ATTACKER = auto()
     DEFENDER = auto()
+
 
 class Powerup(Enum):
     INVISIBILITY = auto()
@@ -69,7 +69,8 @@ class Agent:
     ATTACKER = "ATTACKER"
     DEFENDER = "DEFENDER"
 
-    def __init__(self, id: int, pos: Tuple[int, int], role: str,player_id: str,vision_range: int):
+    def __init__(self, id: int, pos: Tuple[int, int], role: str,
+                 player_id: str, vision_range: int):
         self.id = id
         self.pos = pos
         self.next_pos = pos
@@ -81,18 +82,18 @@ class Agent:
         self.invulnerability_duration = 0
         self.origin_pos = pos
 
-
     def __str__(self):
         return str(self.__dict__)
 
     __repr__ = __str__
-    
 
-def chain_agents(agents1,agents2):
+
+def chain_agents(agents1, agents2):
     for a in agents1:
         yield a
     for b in agents2:
         yield b
+
 
 class Game:
     def __init__(self, map: Dict):
@@ -133,7 +134,7 @@ class Game:
         self.map_template = self._load_map(map['map'])
         self.map_conf = map['map_conf']
         self.powerup_conf = map['powerup_conf']
-        self.map: Dict[Tuple[int,int],Dict] = {} #地图状态信息
+        self.map: Dict[Tuple[int, int], Dict] = {}  #地图状态信息
         self.agents: Dict[str, Agent] = {}
         self.steps = 0
         self.rand = None
@@ -144,25 +145,27 @@ class Game:
         self.logs = []
         self.to_refresh = defaultdict(list)
 
-
-    def _load_map(self, map_data: Dict) -> Tuple[Dict[Tuple[int, int], str],Dict,Dict]:
+    def _load_map(
+            self,
+            map_data: Dict) -> Tuple[Dict[Tuple[int, int], str], Dict, Dict]:
         map_template = {}
         for cell in map_data:
             x = cell['x']
             y = cell['y']
             cell_type = cell['type']
             o = {"type": CellType[cell_type]}
-            
+            # if cell_type == "WALL":
+            #     continue
+
             if cell_type == 'PORTAL':
                 pair_x = cell['pair']['x']
                 pair_y = cell['pair']['y']
-                o['pair'] = (pair_x,pair_y)
+                o['pair'] = (pair_x, pair_y)
                 o['name'] = cell['name']
 
             map_template[(x, y)] = o
 
         return map_template
-
 
     def reset(self, attacker: str, defender: str, seed=0):
         # 使用seed生成随机数
@@ -172,7 +175,7 @@ class Game:
         self.attacker = attacker
         self.defender = defender
         self.agents = {}
-        self.map: Dict[Tuple[int,int],Dict] = {}
+        self.map: Dict[Tuple[int, int], Dict] = {}
         self.steps = 0
         self.rand = random.Random(seed)
         self.attacker_time_used = 0
@@ -181,7 +184,6 @@ class Game:
         self.to_refresh = defaultdict(list)
 
         agent_id = 0
-        
 
         for pos, obj in self.map_template.items():
             ty = obj['type']
@@ -189,79 +191,90 @@ class Game:
                 # 随机选择一个powerup
                 powerup = self.rand.choice(list(Powerup))
                 self.map[pos] = {'type': CellType.POWERUP, 'powerup': powerup}
-            
+
             elif ty == CellType.COIN:
-                self.map[pos] =  {'type': CellType.COIN, 'score': self.map_conf['coin_score']}
+                self.map[pos] = {
+                    'type': CellType.COIN,
+                    'score': self.map_conf['coin_score']
+                }
 
             elif ty == CellType.ATTACKER:
-                attacker_agent = Agent(agent_id, pos, Agent.ATTACKER, attacker,self.map_conf['vision_range'])
+                attacker_agent = Agent(agent_id, pos, Agent.ATTACKER, attacker,
+                                       self.map_conf['vision_range'])
                 self.agents[agent_id] = attacker_agent
                 agent_id += 1
-                
+
             elif ty == CellType.DEFENDER:
-                defender_agent = Agent(agent_id, pos, Agent.DEFENDER, defender,self.map_conf['vision_range'])
+                defender_agent = Agent(agent_id, pos, Agent.DEFENDER, defender,
+                                       self.map_conf['vision_range'])
                 self.agents[agent_id] = defender_agent
                 agent_id += 1
 
             else:
-                self.map[pos] = obj    
-
+                self.map[pos] = obj
 
     def _check_out_of_bounds(self, agent: Agent) -> bool:
         x, y = agent.next_pos
         map_width = self.map_conf['width']
         map_height = self.map_conf['height']
         return x < 0 or x >= map_width or y < 0 or y >= map_height
-        
 
-    def _check_collision_between_agents(self, agent1: Agent, agent2: Agent) -> str:
+    def _check_collision_between_agents(self, agent1: Agent,
+                                        agent2: Agent) -> str:
         if agent1.next_pos == agent2.next_pos:
             return "dest"
         if agent1.next_pos == agent2.pos and agent2.next_pos == agent1.pos:
             return "path"
 
-
     def _handle_powerup(self, agent: Agent, cell: Dict) -> None:
         #处理获得道具的逻辑
         powerup_type = cell['powerup']
         if agent.role == agent.DEFENDER and powerup_type == Powerup.INVISIBILITY:
-            self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]获得隐身道具")
-            agent.powerups["invisibility"] = self.powerup_conf['invisibility']['duration']
+            self.logs.append(
+                f"player[{agent.player_id}]的agent[{agent.id}]获得隐身道具")
+            agent.powerups["invisibility"] = self.powerup_conf['invisibility'][
+                'duration']
 
         elif agent.role == agent.DEFENDER and powerup_type == Powerup.SHIELD:
-            self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]获得防守道具")
+            self.logs.append(
+                f"player[{agent.player_id}]的agent[{agent.id}]获得防守道具")
             agent.powerups["shield"] = self.powerup_conf['shield']['duration']
 
         elif agent.role == agent.ATTACKER and powerup_type == Powerup.SWORD:
-            self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]获得攻击道具")
+            self.logs.append(
+                f"player[{agent.player_id}]的agent[{agent.id}]获得攻击道具")
             agent.powerups["sword"] = self.powerup_conf['sword']['duration']
 
         elif powerup_type == Powerup.PASSWALL:
-            self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]获得穿墙道具")
-            agent.powerups["passwall"] = self.powerup_conf['passwall']['duration']
+            self.logs.append(
+                f"player[{agent.player_id}]的agent[{agent.id}]获得穿墙道具")
+            agent.powerups["passwall"] = self.powerup_conf['passwall'][
+                'duration']
 
         elif powerup_type == Powerup.EXTRAVISION:
-            self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]获得视野扩展道具")
+            self.logs.append(
+                f"player[{agent.player_id}]的agent[{agent.id}]获得视野扩展道具")
             agent.vision_range = self.powerup_conf['extravision']['extra']
-            agent.powerups["extravision"] = self.powerup_conf['extravision']['duration']
+            agent.powerups["extravision"] = self.powerup_conf['extravision'][
+                'duration']
 
         else:
             return
 
         del self.map[agent.next_pos]
-        refresh_interval = self.map_conf.get('refresh_interval',0)
+        refresh_interval = self.map_conf.get('refresh_interval', 0)
         if refresh_interval > 0:
-            self.to_refresh[self.steps+refresh_interval].append(agent.next_pos)
-
+            self.to_refresh[self.steps + refresh_interval].append(
+                agent.next_pos)
 
     def _handle_coin(self, agent: Agent, cell: Dict) -> None:
         #处理获得金币的逻辑
         if agent.role != Agent.ATTACKER:
             agent.score += self.map_conf['coin_score']  # 加分逻辑
-            self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]获得金币")
+            self.logs.append(
+                f"player[{agent.player_id}]的agent[{agent.id}]获得金币")
             # 删除地图上的这个金币
             del self.map[agent.next_pos]
-
 
     # def _find_spawn_pos(self, agent):
     #     for pos, cell in self.map_template.items():
@@ -272,15 +285,16 @@ class Game:
     #                 return pos
     #     raise Exception("No available spawn position found.")
 
-
-    def _handle_agent_collision_different_team(self, collision_type:str,attacker: Agent,defender: Agent):
-        if defender.powerups.get("shield") and not attacker.powerups.get("sword"):
+    def _handle_agent_collision_different_team(self, collision_type: str,
+                                               attacker: Agent,
+                                               defender: Agent):
+        if defender.powerups.get(
+                "shield") and not attacker.powerups.get("sword"):
             return
 
         if defender.invulnerability_duration > 0:
             return
-        
-        
+
         if attacker.powerups.get("sword"):
             # 攻击方获得防守方的分数的一半
             score_delta = defender.score + self.map_conf['catch_score']
@@ -292,10 +306,12 @@ class Game:
             defender.score //= 2
 
         #回到起始地点
-        self.logs.append(f"player[{attacker.player_id}]的agent[{attacker.id}]抓获player[{defender.player_id}]的agent[{defender.id}],获得了{score_delta}金币")
+        self.logs.append(
+            f"player[{attacker.player_id}]的agent[{attacker.id}]抓获player[{defender.player_id}]的agent[{defender.id}],获得了{score_delta}金币"
+        )
         defender.next_pos = defender.origin_pos
-        defender.invulnerability_duration = self.map_conf['invulnerability_duration']
-
+        defender.invulnerability_duration = self.map_conf[
+            'invulnerability_duration']
 
     # def _handle_agent_collision_different_team(self, collision_type:str,attacker: Agent,defender: Agent):
     #     if defender.powerups.get("shield") or defender.invulnerability_duration > 0:
@@ -313,15 +329,15 @@ class Game:
     #         defender.next_pos = self._find_spawn_pos(defender)  # 设为出生位置
     #         defender.invulnerability_duration = self.map_conf['invulnerability_duration']
 
-
-    def _handle_agent_collision_same_team(self, collision_type:str,agent_a: Agent,agent_b: Agent):
-        if collision_type == "dest": #目的地碰撞,这id小的优先
+    def _handle_agent_collision_same_team(self, collision_type: str,
+                                          agent_a: Agent, agent_b: Agent):
+        if collision_type == "dest":  #目的地碰撞,这id小的优先
             if agent_a.id < agent_b.id:
                 agent_b.next_pos = agent_b.pos
             else:
                 agent_a.next_pos = agent_a.pos
-            
-        elif collision_type == "path": #路径碰撞，均不成功
+
+        elif collision_type == "path":  #路径碰撞，均不成功
             agent_a.next_pos = agent_a.pos
             agent_b.next_pos = agent_b.pos
 
@@ -339,23 +355,25 @@ class Game:
         else:
             agent.next_pos = (x, y)
 
-    def _get_agents(self,role: str) -> List[Agent]:
+    def _get_agents(self, role: str) -> List[Agent]:
         agents = []
         for agent_id, agent in self.agents.items():
             if agent.role == role:
                 agents.append(agent)
-        agents = sorted(agents,key = lambda x: x.id)
+        agents = sorted(agents, key=lambda x: x.id)
         return agents
 
-
     def _refresh_powerups(self):
-        for pos in self.to_refresh.pop(self.steps,[]):
+        for pos in self.to_refresh.pop(self.steps, []):
             # 随机选择一个powerup
             powerup = self.rand.choice(list(Powerup))
             self.map[pos] = {'type': CellType.POWERUP, 'powerup': powerup}
 
-
-    def apply_actions(self,attacker_actions: Dict[int, str],defender_actions: Dict[int, str],attacker_time_used = 0,defender_time_used = 0) -> None:
+    def apply_actions(self,
+                      attacker_actions: Dict[int, str],
+                      defender_actions: Dict[int, str],
+                      attacker_time_used=0,
+                      defender_time_used=0) -> None:
         self.logs = []
         self.steps += 1
         self.attacker_time_used += attacker_time_used
@@ -374,20 +392,21 @@ class Game:
         defender_agents = self._get_agents(Agent.DEFENDER)
 
         #用动作更新next_pos位置
-        for agents,actions in [(attacker_agents,attacker_actions),(defender_agents,defender_actions)]:
+        for agents, actions in [(attacker_agents, attacker_actions),
+                                (defender_agents, defender_actions)]:
             for agent in agents:
                 try:
                     act = Direction[actions[int(agent.id)]]
-                    self._move(agent,act)
+                    self._move(agent, act)
                 except KeyError as e:
-                    logger.error("key error:%s",e)
-
+                    logger.error("key error:%s", e)
 
         #检测越界、撞墙与传送门
-        for agent in chain_agents(defender_agents,attacker_agents):
+        for agent in chain_agents(defender_agents, attacker_agents):
             #检测越界
             if self._check_out_of_bounds(agent):
-                self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]尝试越界")
+                self.logs.append(
+                    f"player[{agent.player_id}]的agent[{agent.id}]尝试越界")
                 agent.next_pos = agent.pos
 
             cell = self.map.get(agent.next_pos)
@@ -395,15 +414,18 @@ class Game:
                 continue
 
             #检测穿墙，考虑穿墙道具的效果
-            if not agent.powerups.get("passwall") and cell['type'] == CellType.WALL:
-                self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]尝试撞墙")
+            if not agent.powerups.get(
+                    "passwall") and cell['type'] == CellType.WALL:
+                self.logs.append(
+                    f"player[{agent.player_id}]的agent[{agent.id}]尝试撞墙")
                 agent.next_pos = agent.pos
 
             #检测是否传送
             if cell['type'] == CellType.PORTAL:
-                self.logs.append(f"player[{agent.player_id}]的agent[{agent.id}]传送到{cell['pair']}")
+                self.logs.append(
+                    f"player[{agent.player_id}]的agent[{agent.id}]传送到{cell['pair']}"
+                )
                 agent.next_pos = cell['pair']
-
 
         # #处理相同队伍内agent之间的碰撞
         # for agents in [attacker_agents,defender_agents]:
@@ -416,9 +438,8 @@ class Game:
         #                 continue
         #             self._handle_agent_collision_same_team(agent_collision)
 
-
         #检测agent与道具和金币的碰撞，优先处理defender
-        for agent in chain_agents(defender_agents,attacker_agents):
+        for agent in chain_agents(defender_agents, attacker_agents):
             cell = self.map.get(agent.next_pos)
             if not cell:
                 continue
@@ -429,21 +450,18 @@ class Game:
                 # 处理获得道具...
                 self._handle_powerup(agent, cell)
 
-
         #检测不同队伍agent之间的碰撞
         for a in attacker_agents:
             for d in defender_agents:
                 agent_collision = self._check_collision_between_agents(a, d)
                 if not agent_collision:
                     continue
-                self._handle_agent_collision_different_team(agent_collision,a,d)
-
+                self._handle_agent_collision_different_team(
+                    agent_collision, a, d)
 
         #最后更新所有agent的pos
-        for agent in chain_agents(defender_agents,attacker_agents):
+        for agent in chain_agents(defender_agents, attacker_agents):
             agent.pos = agent.next_pos
-
-
 
     def _reduce_powerup_duration(self, agent: Agent) -> None:
         for powerup in list(agent.powerups):
@@ -453,28 +471,25 @@ class Game:
                     agent.vision_range = self.map_conf['vision_range']
                 del agent.powerups[powerup]
 
-
     def get_result(self) -> Dict:
-        scores = defaultdict(lambda : 0)
+        scores = defaultdict(lambda: 0)
         for agent in self.agents.values():
             scores[agent.player_id] += agent.score
 
         return {
-            "players": [
-                {
-                    "id": self.attacker,
-                    "role": "ATTACKER",
-                    "score": scores[self.attacker],
-                    "time_used": self.attacker_time_used
-                },
-                {
-                    "id": self.defender,
-                    "role": "DEFENDER",
-                    "score": scores[self.defender],
-                    "time_used": self.defender_time_used
-                }
-            ],
-            "steps": self.steps,
+            "players": [{
+                "id": self.attacker,
+                "role": "ATTACKER",
+                "score": scores[self.attacker],
+                "time_used": self.attacker_time_used
+            }, {
+                "id": self.defender,
+                "role": "DEFENDER",
+                "score": scores[self.defender],
+                "time_used": self.defender_time_used
+            }],
+            "steps":
+            self.steps,
         }
 
         # "time_used": {
@@ -488,8 +503,7 @@ class Game:
         # },
         # "scores": scores,
 
-
-    def get_agent_states_by_player(self,player: str) -> Dict:
+    def get_agent_states_by_player(self, player: str) -> Dict:
         #返回属于某个player的所有agent的视野范围内所有地图的状态，包括墙体，道具，金币，agent等
         agent_states = defaultdict(list)
 
@@ -510,7 +524,7 @@ class Game:
                 continue
 
             view = {
-                "walls":[],
+                "walls": [],
                 "portals": [],
                 "powerups": [],
                 "coins": [],
@@ -521,10 +535,10 @@ class Game:
             vision_range = agent.vision_range
             for dx in range(-vision_range, vision_range + 1):
                 for dy in range(-vision_range, vision_range + 1):
-                    vx,vy = x+dx, y+dy
+                    vx, vy = x + dx, y + dy
 
                     #find in map
-                    cell = self.map.get((vx,vy))
+                    cell = self.map.get((vx, vy))
                     if cell is not None:
                         if cell['type'] == CellType.COIN:
                             view['coins'].append({
@@ -541,8 +555,7 @@ class Game:
                                     "x": cell['pair'][0],
                                     "y": cell['pair'][1]
                                 },
-                                "name": cell.get('name') 
-
+                                "name": cell.get('name')
                             })
                         elif cell['type'] == CellType.WALL:
                             view['walls'].append({
@@ -552,18 +565,22 @@ class Game:
 
                         elif cell['type'] == CellType.POWERUP:
                             view['powerups'].append({
-                                "x": vx,
-                                "y": vy,
-                                "powerup": str(cell['powerup'])
+                                "x":
+                                vx,
+                                "y":
+                                vy,
+                                "powerup":
+                                str(cell['powerup'])
                             })
 
                     #find in agents
-                    ss = agent_states[vx,vy]
+                    ss = agent_states[vx, vy]
                     for s in ss:
                         if s['id'] == agent.id:
                             view['self_agent'] = s
                         else:
-                            if agent.role == agent.ATTACKER and 'invisibility' in s['powerups']:
+                            if agent.role == agent.ATTACKER and 'invisibility' in s[
+                                    'powerups']:
                                 continue
                             view["other_agents"].append(s)
 
@@ -586,7 +603,6 @@ class Game:
                 return False
 
         return True
-
 
     def get_map_states(self) -> Dict:
         #从全局视觉，返回地图中所有元素的状态，包括墙体，道具，金币，agent等
@@ -638,7 +654,7 @@ class Game:
             "powerups": [],
             "coins": []
         }
-        
+
         for pos, cell in self.map.items():
             if cell['type'] == CellType.WALL:
                 map_state["walls"].append({"x": pos[0], "y": pos[1]})
@@ -650,35 +666,44 @@ class Game:
                         "x": cell['pair'][0],
                         "y": cell['pair'][1],
                     },
-                    "name": cell.get('name')  
+                    "name": cell.get('name')
                 })
             elif cell['type'] == CellType.POWERUP:
                 map_state["powerups"].append({
-                    "x": pos[0], 
+                    "x": pos[0],
                     "y": pos[1],
                     "powerup": str(cell['powerup'])
                 })
             elif cell['type'] == CellType.COIN:
                 map_state["coins"].append({
-                    "x": pos[0],
-                    "y": pos[1],
-                    "score": cell.get('score', self.map_conf['coin_score']) 
+                    "x":
+                    pos[0],
+                    "y":
+                    pos[1],
+                    "score":
+                    cell.get('score', self.map_conf['coin_score'])
                 })
-                
+
         for agent in self.agents.values():
             map_state["agents"].append({
-                "id": agent.id,
-                "x": agent.pos[0],
-                "y": agent.pos[1],
-                "powerups": agent.powerups.copy(),
-                "role": agent.role,
-                "player_id": agent.player_id,
-                "vision_range": agent.vision_range,
-                "score": agent.score,
-                "invulnerability_duration": agent.invulnerability_duration
+                "id":
+                agent.id,
+                "x":
+                agent.pos[0],
+                "y":
+                agent.pos[1],
+                "powerups":
+                agent.powerups.copy(),
+                "role":
+                agent.role,
+                "player_id":
+                agent.player_id,
+                "vision_range":
+                agent.vision_range,
+                "score":
+                agent.score,
+                "invulnerability_duration":
+                agent.invulnerability_duration
             })
-            
+
         return map_state
-
-
-    

@@ -27,7 +27,8 @@ class Model:
         for id in agents:
             self.my_last_pos[id] = (0, 0)
         # 敌人位置分数
-        self.pos_score = np.zeros(shape=[len(opponents), map.size[0], map.size[1]])
+        self.pos_score = np.zeros(
+            shape=[len(opponents), map.size[0], map.size[1]])
         # 探索视野能获得的得分 - 视野内的格子X回合内无得分
         self.vision_score = np.zeros(shape=map.size)
         # 道具分数
@@ -101,9 +102,8 @@ class Model:
         trace: position of first step
         reward: total reward of chosen route
         exploration: {"reward": max_reward, "trace": the trace of max_reward}
-<<<<<<< HEAD
-        step: 
-        '''
+        """
+
         if step >= max_step:
             return
 
@@ -134,63 +134,6 @@ class Model:
         for p in next_pos:
             self.explore(p, map_copy, trace, reward, exploration, visited_copy,
                          step + 1, max_step)
-=======
-        step:
-        """
-        ############# py ##############
-        # start = time.time()
-        result = rust_perf.explore(
-            self.agents,
-            position,
-            map_score,
-            visited,
-            step,
-            max_step,
-        )
-        # print(time.time() - start)
-        return result
-        ############# py ##############
-
-        # if step >= max_step:
-        #     return
-
-        # map_copy = np.copy(map_score)
-        # visited_copy = dict()
-        # for id, v in visited.items():
-        #     visited_copy[id] = set(v)
-        # # visited_copy = deepcopy(visited)
-
-        # pos = list()
-        # crowd = 0.0
-        # for id in self.agents:
-        #     agent_pos = (position[id][0], position[id][1])
-        #     visited_copy[id].add(agent_pos)
-        #     reward += map_copy[agent_pos] * pow(0.99, step)
-        #     map_copy[agent_pos] = 0
-
-        #     for other in pos:
-        #         if self.map.distance(other, agent_pos) < 3:
-        #             crowd += 0.1
-
-        # reward -= crowd
-
-        # if reward > exploration["reward"]:
-        #     exploration["reward"] = reward
-        #     exploration["trace"] = trace
-
-        # next_pos = self.get_all_nearby_pos(position, visited_copy)
-        # for p in next_pos:
-        #     self.explore(
-        #         p,
-        #         map_copy,
-        #         trace,
-        #         reward,
-        #         exploration,
-        #         visited_copy,
-        #         step + 1,
-        #         max_step,
-        #     )
->>>>>>> b04ac3330fcbcfe42979fce12021d976000dfe9d
 
     def certain_pos(self, id: int, pos: tuple):
         """
@@ -230,21 +173,19 @@ class Model:
             # 更新自身位置
             self.my_last_pos[id] = self.my_pos[id]
             my_pos = self.map.obs_to_map_coor(
-                (view["self_agent"]["x"], view["self_agent"]["y"])
-            )
+                (view["self_agent"]["x"], view["self_agent"]["y"]))
             self.my_pos[id] = my_pos
             total_score += view["self_agent"]["score"]
 
             for other_agent in view["other_agents"]:
                 if other_agent["role"] != self.role:
                     map_pos = self.map.obs_to_map_coor(
-                        (other_agent["x"], other_agent["y"])
-                    )
+                        (other_agent["x"], other_agent["y"]))
                     opp_in_view[other_agent["id"]]: map_pos
 
             view_pos.extend(
-                self.map.get_view_coor(my_pos, view["self_agent"]["vision_range"])
-            )
+                self.map.get_view_coor(my_pos,
+                                       view["self_agent"]["vision_range"]))
 
         self.total_score = total_score
         view_pos = list(set(view_pos))

@@ -3,9 +3,14 @@ import time
 import random
 import numpy as np
 from game import Game
-from map.map import Map
-from model.defender import Defender
-from model.utils import print_map_state
+from model.polygon_attacker.attacker import PolygonAttacker
+from model.utils import *
+
+import rust_perf
+
+x = rust_perf.get_direction((0, 0), (1, 1), [(2, 2), (3, 3)])
+print(x)
+assert False
 
 ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
@@ -13,6 +18,8 @@ ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 with open("map.json") as f:
     map = json.load(f)
 game = Game(map)
+
+map_size = (map["map_conf"]["height"], map["map_conf"]["width"])
 
 # init game
 # seed = random.randint(0, 10000)
@@ -30,44 +37,35 @@ for seed in seeds:
     attacker_ids = sorted(list(attacker_obs.keys()))
     defender_ids = sorted(list(defender_obs.keys()))
 
-    defender_map = Map()
-    defender_map.load_map(map["map"])
+    attacker = PolygonAttacker(map_size, attacker_ids, defender_ids,
+                               get_walls())
+
     eatten_set = set()
     step = 0
     start_game_time = time.time()
 
-    defender = Defender(
-        defender_ids,
-        attacker_ids,
-        defender_map,
-    )
     # game loop
     while not game.is_over():
         step_start = time.time()
         # get game state for player:
         attacker_obs = game.get_agent_states_by_player("attacker")
         defender_obs = game.get_agent_states_by_player("defender")
-        defender.map.update_map(defender_obs)
-        defender.update(defender_obs)
-
-        opp_pos = dict()
-        for id, view in attacker_obs.items():
-            opp_pos[id] = defender_map.obs_to_map_coor(
-                (view["self_agent"]["x"], view["self_agent"]["y"]))
-        print_map_state(defender, opp_pos)
-
-        if defender.map.coin_map.sum() == 0:
-            assert False
+        print_map_state(game.get_map_states(), map_size)
+        attacker.update(attacker_obs)
 
         # apply actions for agents:
-        attacker_actions = {_id: "STAY" for _id in attacker_obs.keys()}
-        defender_actions = defender.step()
-        print(defender_actions, round(time.time() - step_start, 3))
-        print()
+        attacker_actions = attacker.step()
+        defender_actions = {
+            _id: random.choice(ACTIONS)
+            for _id in defender_obs.keys()
+        }
+        # print(round(time.time() - step_start, 3))
+        # print()
 
         game.apply_actions(attacker_actions=attacker_actions,
                            defender_actions=defender_actions)
         step += 1
+        time.sleep(0.5)
         # print(f"{step}/1152")
 
     # get game result

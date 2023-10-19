@@ -53,9 +53,9 @@ class Attacker:
             self.opp_state[id]["score"] = 0
             self.opp_state[id]["vision_range"] = 2
 
-        # self.warmup_points = [(11, 12), (6, 13), (6, 1), (22, 17)]
-        self.warmup_points = [(11, 12), (4, 22), (6, 1), (22, 17)]
-        self.patrol_points = [(11, 11), (1, 1), (22, 22), (1, 22), (22, 1)]
+        self.warmup_points = [(11, 12), (6, 13), (6, 1), (22, 17)]
+        # self.warmup_points = [(11, 12), (4, 22), (6, 1), (22, 17)]
+        self.patrol_points = [(11, 11), (3, 3), (20, 20), (3, 20), (20, 3)]
 
     def _action_direction(self, action):
         if action == self.UP:

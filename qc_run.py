@@ -105,7 +105,7 @@ for seed in seeds:
             attacker_actions=attacker_actions, defender_actions=defender_actions
         )
         step += 1
-        time.sleep(0.5)
+        # time.sleep(0.5)
         # print(f"{step}/1152")
 
     # get game result

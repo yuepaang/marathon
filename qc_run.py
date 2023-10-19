@@ -8,6 +8,7 @@ from model.utils import *
 from baseline import use_defender
 
 # import rust_perf
+
 # x = rust_perf.get_direction_path((0, 0), (22, 23), [(1, 2), (1, 10)])
 # print(x)
 # assert False
@@ -42,7 +43,7 @@ def py_run(defender_state, defender_powerup_clock, eatten_set):
                 )
 
     other_target = {i: [] for i in range(4, 8)}
-    defender_actions = {
+    return {
         _id: use_defender(
             defender_state[_id],
             eatten_set,
@@ -61,7 +62,7 @@ def py_run(defender_state, defender_powerup_clock, eatten_set):
 win_count = 0
 attacker_score = 0
 defender_score = 0
-seeds = [random.randint(0, 1000000) for _ in range(5)]
+seeds = [random.randint(0, 1000000) for _ in range(1)]
 # seeds = [7437]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
@@ -96,10 +97,7 @@ for seed in seeds:
         # defender_actions = {_id: "STAY" for _id in defender_obs.keys()}
         # print(round(time.time() - step_start, 3))
         # print()
-        defender_actions = {
-            _id: py_run(defender_obs, defender_powerup_clock, eatten_set)
-            for _id in defender_obs.keys()
-        }
+        defender_actions = py_run(defender_obs, defender_powerup_clock, eatten_set)
 
         game.apply_actions(
             attacker_actions=attacker_actions, defender_actions=defender_actions

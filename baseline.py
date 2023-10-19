@@ -591,166 +591,166 @@ def use_defender(
         return get_direction(current_pos, path[0])
 
 
-# load map
-with open("map.json") as f:
-    map = json.load(f)
-game = Game(map)
+if __name__ == "__main__":
+    # load map
+    with open("map.json") as f:
+        map = json.load(f)
+    game = Game(map)
 
+    # init game
+    win_count = 0
+    attacker_score = 0
+    defender_score = 0
+    seeds = [random.randint(0, 1000000) for _ in range(2)]
+    # seeds = [348074]
+    for seed in seeds:
+        game.reset(attacker="attacker", defender="defender", seed=seed)
 
-# init game
-win_count = 0
-attacker_score = 0
-defender_score = 0
-seeds = [random.randint(0, 1000000) for _ in range(2)]
-# seeds = [348074]
-for seed in seeds:
-    game.reset(attacker="attacker", defender="defender", seed=seed)
+        eatten_set = set()
+        step = 0
+        defender_powerup_clock = {}
+        attacker_powerup_clock = {}
+        start_game_time = time.time()
+        map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
+        for x, y in global_walls_list:
+            map_in_heart[x][y] = -1.0
+        predicted_attacker_pos = {0: (22, 0), 1: (22, 1), 2: (23, 0), 3: (23, 1)}
 
-    eatten_set = set()
-    step = 0
-    defender_powerup_clock = {}
-    attacker_powerup_clock = {}
-    start_game_time = time.time()
-    map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
-    for x, y in global_walls_list:
-        map_in_heart[x][y] = -1.0
-    predicted_attacker_pos = {0: (22, 0), 1: (22, 1), 2: (23, 0), 3: (23, 1)}
+        # 16 islands
+        islands = hull(maze)
+        print(len(islands))
 
-    # 16 islands
-    islands = hull(maze)
-    print(len(islands))
+        # game loop
+        while not game.is_over():
+            # get game state for player:
+            attacker_state = game.get_agent_states_by_player("attacker")
+            defender_state = game.get_agent_states_by_player("defender")
 
-    # game loop
-    while not game.is_over():
-        # get game state for player:
-        attacker_state = game.get_agent_states_by_player("attacker")
-        defender_state = game.get_agent_states_by_player("defender")
+            # print(
+            #     "a",
+            #     [
+            #         (k, v["self_agent"]["x"], v["self_agent"]["y"])
+            #         for k, v in attacker_state.items()
+            #     ],
+            #     [v["self_agent"]["score"] for _, v in attacker_state.items()],
+            # )
+            # print(
+            #     "d",
+            #     [
+            #         (k, v["self_agent"]["x"], v["self_agent"]["y"])
+            #         for k, v in defender_state.items()
+            #     ],
+            #     [v["self_agent"]["score"] for _, v in defender_state.items()],
+            # )
+            # print("p", predicted_attacker_pos)
 
-        # print(
-        #     "a",
-        #     [
-        #         (k, v["self_agent"]["x"], v["self_agent"]["y"])
-        #         for k, v in attacker_state.items()
-        #     ],
-        #     [v["self_agent"]["score"] for _, v in attacker_state.items()],
-        # )
-        # print(
-        #     "d",
-        #     [
-        #         (k, v["self_agent"]["x"], v["self_agent"]["y"])
-        #         for k, v in defender_state.items()
-        #     ],
-        #     [v["self_agent"]["score"] for _, v in defender_state.items()],
-        # )
-        # print("p", predicted_attacker_pos)
+            defender_locations = set()
+            my_pos = []
+            main_chase = {}
+            for k, v in attacker_state.items():
+                my_pos.append((v["self_agent"]["x"], v["self_agent"]["y"]))
+                other_agent_list = v["other_agents"]
+                for other_agent in other_agent_list:
+                    if other_agent["role"] == "DEFENDER":
+                        defender_locations.add((other_agent["x"], other_agent["y"]))
+                        main_chase[int(k)] = (other_agent["x"], other_agent["y"])
 
-        defender_locations = set()
-        my_pos = []
-        main_chase = {}
-        for k, v in attacker_state.items():
-            my_pos.append((v["self_agent"]["x"], v["self_agent"]["y"]))
-            other_agent_list = v["other_agents"]
-            for other_agent in other_agent_list:
-                if other_agent["role"] == "DEFENDER":
-                    defender_locations.add((other_agent["x"], other_agent["y"]))
-                    main_chase[int(k)] = (other_agent["x"], other_agent["y"])
+            defender_next_move = {}
+            for enemy in defender_locations:
+                defender_next_move[enemy] = predict_enemy_move(enemy, my_pos)
+            # attacker_actions = {
+            #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
+            # }
+            # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
+            attacker_actions = {
+                _id: use_attacker(
+                    attacker_state[_id],
+                    list(defender_locations),
+                    attacker_powerup_clock,
+                    main_chase,
+                    defender_next_move,
+                )
+                for _id in attacker_state.keys()
+            }
 
-        defender_next_move = {}
-        for enemy in defender_locations:
-            defender_next_move[enemy] = predict_enemy_move(enemy, my_pos)
-        # attacker_actions = {
-        #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
-        # }
-        # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
-        attacker_actions = {
-            _id: use_attacker(
-                attacker_state[_id],
-                list(defender_locations),
-                attacker_powerup_clock,
-                main_chase,
-                defender_next_move,
+            # defender_actions = {
+            #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
+            # }
+
+            my_pos = {}
+            attacker_locations = dict()
+            # least_score_id = 0
+            # least_score = 1e8
+            for k, v in defender_state.items():
+                my_pos[int(k)] = (v["self_agent"]["x"], v["self_agent"]["y"])
+                other_agent_list = v["other_agents"]
+                # if v["self_agent"]["score"] < least_score:
+                #     least_score = v["self_agent"]["score"]
+                #     least_score_id = int(k)
+
+                for other_agent in other_agent_list:
+                    if other_agent["role"] == "ATTACKER":
+                        attacker_locations[int(other_agent["id"])] = (
+                            other_agent["x"],
+                            other_agent["y"],
+                        )
+                        # predicted_attacker_pos[int(other_agent["id"])] = (
+                        #     other_agent["x"],
+                        #     other_agent["y"],
+                        # )
+
+            # all_pos = get_all_nearby_pos(predicted_attacker_pos, map_in_heart)
+            # print(all_pos)
+            # print(my_pos)
+            # start = time.time()
+            # if len(all_pos) > 100:
+            #     all_pos = random.sample(all_pos, 100)
+            # score_vec = rust_perf.predict_enemy([0, 1, 2, 3], all_pos, my_pos, {}, 0)
+            # print(time.time() - start)
+            # print(score_vec)
+            # predicted_attacker_pos = all_pos[score_vec.index(max(score_vec))]
+            for k, v in attacker_locations.items():
+                predicted_attacker_pos[k] = v
+            # print(predicted_attacker_pos)
+            # raise Exception("e")
+
+            # print(f"a, {step}/1152")
+            other_target = {i: [] for i in range(4, 8)}
+            defender_actions = {
+                _id: use_defender(
+                    defender_state[_id],
+                    eatten_set,
+                    defender_powerup_clock,
+                    other_target,
+                    attacker_locations,
+                    # predicted_attacker_pos,
+                )
+                for _id in defender_state.keys()
+            }
+
+            game.apply_actions(
+                attacker_actions=attacker_actions, defender_actions=defender_actions
             )
-            for _id in attacker_state.keys()
-        }
+            step += 1
+            # print(f"d,{step}/1152")
 
-        # defender_actions = {
-        #     _id: random.choice(ACTIONS) for _id in defender_state.keys()
-        # }
+        # get game result
+        print(f"seed: {seed} --- game result:\r\n", game.get_result())
+        print("elasped time: ", time.time() - start_game_time, "s")
+        if (
+            game.get_result()["players"][0]["score"]
+            < game.get_result()["players"][1]["score"]
+        ):
+            win_count += 1
+        attacker_score += game.get_result()["players"][0]["score"]
+        defender_score += game.get_result()["players"][1]["score"]
 
-        my_pos = {}
-        attacker_locations = dict()
-        # least_score_id = 0
-        # least_score = 1e8
+        defender_state = game.get_agent_states_by_player("attacker")
         for k, v in defender_state.items():
-            my_pos[int(k)] = (v["self_agent"]["x"], v["self_agent"]["y"])
-            other_agent_list = v["other_agents"]
-            # if v["self_agent"]["score"] < least_score:
-            #     least_score = v["self_agent"]["score"]
-            #     least_score_id = int(k)
+            print("attacker", k, v["self_agent"]["score"])
+        defender_state = game.get_agent_states_by_player("defender")
+        for k, v in defender_state.items():
+            print("defender", k, v["self_agent"]["score"])
 
-            for other_agent in other_agent_list:
-                if other_agent["role"] == "ATTACKER":
-                    attacker_locations[int(other_agent["id"])] = (
-                        other_agent["x"],
-                        other_agent["y"],
-                    )
-                    # predicted_attacker_pos[int(other_agent["id"])] = (
-                    #     other_agent["x"],
-                    #     other_agent["y"],
-                    # )
-
-        # all_pos = get_all_nearby_pos(predicted_attacker_pos, map_in_heart)
-        # print(all_pos)
-        # print(my_pos)
-        # start = time.time()
-        # if len(all_pos) > 100:
-        #     all_pos = random.sample(all_pos, 100)
-        # score_vec = rust_perf.predict_enemy([0, 1, 2, 3], all_pos, my_pos, {}, 0)
-        # print(time.time() - start)
-        # print(score_vec)
-        # predicted_attacker_pos = all_pos[score_vec.index(max(score_vec))]
-        for k, v in attacker_locations.items():
-            predicted_attacker_pos[k] = v
-        # print(predicted_attacker_pos)
-        # raise Exception("e")
-
-        # print(f"a, {step}/1152")
-        other_target = {i: [] for i in range(4, 8)}
-        defender_actions = {
-            _id: use_defender(
-                defender_state[_id],
-                eatten_set,
-                defender_powerup_clock,
-                other_target,
-                attacker_locations,
-                # predicted_attacker_pos,
-            )
-            for _id in defender_state.keys()
-        }
-
-        game.apply_actions(
-            attacker_actions=attacker_actions, defender_actions=defender_actions
-        )
-        step += 1
-        # print(f"d,{step}/1152")
-
-    # get game result
-    print(f"seed: {seed} --- game result:\r\n", game.get_result())
-    print("elasped time: ", time.time() - start_game_time, "s")
-    if (
-        game.get_result()["players"][0]["score"]
-        < game.get_result()["players"][1]["score"]
-    ):
-        win_count += 1
-    attacker_score += game.get_result()["players"][0]["score"]
-    defender_score += game.get_result()["players"][1]["score"]
-
-    defender_state = game.get_agent_states_by_player("attacker")
-    for k, v in defender_state.items():
-        print("attacker", k, v["self_agent"]["score"])
-    defender_state = game.get_agent_states_by_player("defender")
-    for k, v in defender_state.items():
-        print("defender", k, v["self_agent"]["score"])
-
-print("Win rate is ", win_count / len(seeds))
-print(f"Attacker score: {attacker_score} vs Defender score: {defender_score}")
+    print("Win rate is ", win_count / len(seeds))
+    print(f"Attacker score: {attacker_score} vs Defender score: {defender_score}")

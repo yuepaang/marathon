@@ -112,8 +112,14 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
 
 pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    banned_points.extend(blocked);
+    banned_points.extend(blocked.clone());
     banned_points.remove(&end);
+    // println!(
+    //     "start: {:?}, end: {:?}, blocked :{:?}",
+    //     start,
+    //     end,
+    //     blocked.clone()
+    // );
 
     let mut portals = HashMap::new();
     for (idx, portal) in conf::PORTALS.iter().enumerate() {
@@ -175,6 +181,10 @@ pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(
             (0, -1, Direction::Up),
         ] {
             let next = (point.0 + i, point.1 + j);
+
+            if check_out_of_bound(next) {
+                continue;
+            }
 
             if visited.contains(&next) || banned_points.contains(&next) {
                 continue;

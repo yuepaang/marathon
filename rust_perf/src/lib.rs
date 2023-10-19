@@ -292,16 +292,15 @@ fn check_stay_or_not(
 
     for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
         let next = (start.0 + i, start.1 + j);
-        // if algo::check_valid_move(start) < algo::check_valid_move(next)
-        //     && shortest_path(next, enemies_position[0]).unwrap()
-        //         > shortest_path(start, enemies_position[0]).unwrap()
+        if algo::check_out_of_bound(next) {
+            continue;
+        }
+        if banned_points.contains(&next) {
+            continue;
+        }
         if shortest_path(next, enemies_position[0]).unwrap()
             > shortest_path(start, enemies_position[0]).unwrap()
         {
-            // println!(
-            //     "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
-            //     start, enemies_position, next
-            // );
             return Ok(vec![next]);
         }
     }
@@ -358,28 +357,44 @@ fn collect_coins(
     Ok((total_path, agent_coins_score))
 }
 
-// BASELINE of defenders with some simple strategies
 #[pyfunction]
 fn catch_enemies_using_powerup(
     start: Point,
     pass_wall: usize,
     mut enemies: Vec<Point>,
+    defender_next_move: HashMap<Point, Point>,
+    move_surround: bool,
 ) -> PyResult<Vec<Point>> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    let mut chase_path = Vec::new();
+    let chase_path;
     enemies.sort_by_key(|&e| shortest_path(start, e).unwrap());
-    if enemies[0] == start {
-        for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
-            let new_hp = (enemies[0].0 + i, enemies[0].1 + j);
-            if !conf::WALLS.contains(&new_hp) {
-                chase_path.push(new_hp);
-                break;
-            }
-        }
-    } else {
+    if !move_surround {
+        // println!("chase, start: {:?} enemies: {:?}", start, enemies);
         chase_path = algo::a_star_search_power(
             start,
             enemies[0],
+            pass_wall,
+            &banned_points,
+            &HashSet::new(),
+            &HashMap::new(),
+        )
+        .unwrap_or(vec![]);
+    } else {
+        let move_direction = defender_next_move.get(&enemies[0]).unwrap();
+        // println!(
+        //     "surround, start: {:?} enemies: {:?}",
+        //     start,
+        //     (
+        //         enemies[0].0 + move_direction.0 * 3,
+        //         enemies[0].1 + move_direction.1 * 3,
+        //     ),
+        // );
+        chase_path = algo::a_star_search_power(
+            start,
+            (
+                enemies[0].0 + move_direction.0 * 3,
+                enemies[0].1 + move_direction.1 * 3,
+            ),
             pass_wall,
             &banned_points,
             &HashSet::new(),
@@ -701,7 +716,8 @@ fn predict_enemy(
 #[pyfunction]
 fn shortest_path(start: Point, end: Point) -> Option<i32> {
     let directions: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
-    let walls: HashSet<Point> = conf::WALLS.par_iter().map(|x| (x.0, x.1)).collect();
+    let mut walls: HashSet<Point> = conf::WALLS.par_iter().map(|x| (x.0, x.1)).collect();
+    walls.remove(&end);
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     let mut portals = HashMap::new();

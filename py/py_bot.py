@@ -48,8 +48,37 @@ for i in range(24):
         openness_map[(i, j)] = openness(i, j, maze)
 
 
-def get_distance(pos1, pos2):
-    return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+def get_neighbors(pos):
+    x, y = pos
+    possible_moves = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    return [
+        move
+        for move in possible_moves
+        if 0 <= move[0] < 24 and 0 <= move[1] < 24 and move not in global_walls_list
+    ]
+
+
+def compute_threat_for_position(pos, agents):
+    # Calculate a threat score based on distance to all agents.
+    # The closer an agent is, the higher the threat.
+    return sum(
+        1 / ((pos[0] - agent[0]) ** 2 + (pos[1] - agent[1]) ** 2 + 1e-6)
+        for agent in agents
+    )
+
+
+def predict_enemy_move(enemy_pos, agents):
+    neighbors = get_neighbors(enemy_pos)
+    threats = {
+        neighbor: compute_threat_for_position(neighbor, agents)
+        for neighbor in neighbors
+    }
+
+    # Return the direction with the least threat
+    move_to = min(threats, key=threats.get)
+    delta_x = move_to[0] - enemy_pos[0]
+    delta_y = move_to[1] - enemy_pos[1]
+    return (delta_x, delta_y)
 
 
 def get_direction(curr, next):
@@ -103,7 +132,15 @@ def get_all_nearby_pos(agent_pos: dict, map_in_heart: list):
     return next_pos
 
 
-def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template) -> str:
+def attack(
+    agent,
+    enemies,
+    powerup_clock,
+    explore_paths,
+    explore_paths_template,
+    main_chase,
+    defender_next_move,
+) -> str:
     # record powerups
     passwall = agent.get_self_agent().powerups.get("passwall", 0)
 
@@ -137,10 +174,22 @@ def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template)
     for k in cancel_key:
         del powerup_clock[k]
 
+    enemies.sort(key=lambda x: rust_perf.shortest_path(current_pos, x))
+
+    if (
+        main_chase.get(agent_id, (-1, -1)) == enemies[0]
+        or rust_perf.shortest_path(current_pos, enemies[0]) <= 4
+    ):
+        move_surround = False
+    else:
+        move_surround = True
+
     path = rust_perf.catch_enemies_using_powerup(
         current_pos,
         passwall,
         enemies,
+        defender_next_move,
+        move_surround,
     )
     if len(path) == 0:
         return random.choice(ACTIONS)
@@ -291,11 +340,18 @@ class RealGame(marathon.Game):
         attacker_locations = dict()
         defender_locations = set()
         my_pos = {}
-
+        my_pos_list = []
+        main_chase = {}
         for k, agent_state in data.get_states().items():
             my_pos[int(k)] = (
                 agent_state.get_self_agent().get_pos()["x"],
                 agent_state.get_self_agent().get_pos()["y"],
+            )
+            my_pos_list.append(
+                (
+                    agent_state.get_self_agent().get_pos()["x"],
+                    agent_state.get_self_agent().get_pos()["y"],
+                )
             )
             other_agent_list = agent_state.get_other_agents()
             for other_agent in other_agent_list:
@@ -309,6 +365,10 @@ class RealGame(marathon.Game):
                         other_agent.get_pos()["y"],
                     )
                 else:
+                    main_chase[int(k)] = (
+                        other_agent.get_pos()["x"],
+                        other_agent.get_pos()["y"],
+                    )
                     defender_locations.add(
                         (other_agent.get_pos()["x"], other_agent.get_pos()["y"])
                     )
@@ -319,6 +379,10 @@ class RealGame(marathon.Game):
 
         for k, v in attacker_locations.items():
             self.predicted_attacker_pos[k] = v
+
+        defender_next_move = {}
+        for enemy in defender_locations:
+            defender_next_move[enemy] = predict_enemy_move(enemy, my_pos_list)
 
         other_target = {i: [] for i in range(4, 8)}
         action = {}
@@ -339,6 +403,8 @@ class RealGame(marathon.Game):
                     self.powerup_clock,
                     self.explore_paths,
                     self.explore_paths_template,
+                    main_chase,
+                    defender_next_move,
                 )
         return action
 

@@ -56,6 +56,7 @@ class Attacker:
         self.warmup_points = [(11, 12), (6, 13), (6, 1), (22, 17)]
         # self.warmup_points = [(11, 12), (4, 22), (6, 1), (22, 17)]
         self.patrol_points = [(11, 11), (3, 3), (20, 20), (3, 20), (20, 3)]
+        self.patrol_points2 = [(11, 2), (11, 21), (2, 11), (21, 12)]
 
     def _action_direction(self, action):
         if action == self.UP:
@@ -518,17 +519,36 @@ class Attacker:
 
         else:
             # print("====== DISPERSE")
+            stay = set()
             match = self._mindist_match(self.patrol_points, [])
             for id, coor in match.items():
                 step_num, path = rust_perf.get_direction_path(
                     self.agt_state[id]["pos"], coor, [])
                 if step_num == 0 or len(path) == 0:
-                    action[id] = "STAY"
+                    action[id] = self.STAY
                 else:
                     action[id] = path[0]
+                if action[id] == self.STAY:
+                    stay.add(id)
                 self.agt_state[id]["task"] = self.PATROL
                 self.agt_state[id]["target"] = coor
                 # print("  ", id, "->", coor, path, self.PATROL)
+
+            if len(stay) > 0:
+                match = self._mindist_match(self.patrol_points2, [])
+                for id, coor in match.items():
+                    if id not in stay:
+                        continue
+                    step_num, path = rust_perf.get_direction_path(
+                        self.agt_state[id]["pos"], coor, [])
+                    if step_num == 0 or len(path) == 0:
+                        action[id] = self.STAY
+                    else:
+                        action[id] = path[0]
+                    if action[id] == self.STAY:
+                        stay.add(id)
+                    self.agt_state[id]["task"] = self.PATROL
+                    self.agt_state[id]["target"] = coor
 
         self.round += 1
         # print(action)

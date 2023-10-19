@@ -14,7 +14,6 @@ use rayon::prelude::*;
 
 use crate::conf;
 use crate::distance;
-use crate::shortest_path;
 use crate::Direction;
 use crate::Node;
 use crate::Point;
@@ -22,6 +21,11 @@ use crate::Point;
 pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.extend(blocked);
+
+    let mut portals = HashMap::new();
+    for (idx, portal) in conf::PORTALS.iter().enumerate() {
+        portals.insert(portal, conf::PORTALS_DEST[idx].clone());
+    }
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
@@ -55,13 +59,28 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
             return Some(path.get(0).unwrap().to_string());
         }
 
+        // Check if current point is a portal entrance
+        if let Some(&next) = portals.get(&point) {
+            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
+                came_from.insert(next, (Direction::Stay, point));
+                g_scores.insert(next, tentative_g_score);
+                let f_score = tentative_g_score;
+                to_visit.push(Node {
+                    cost: f_score,
+                    point: next,
+                    passwall: 0,
+                });
+            }
+        }
+
         for &(i, j, direction) in &[
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
             (0, 1, Direction::Down),
             (0, -1, Direction::Up),
         ] {
-            let mut next = (point.0 + i, point.1 + j);
+            let next = (point.0 + i, point.1 + j);
 
             if check_out_of_bound(next) {
                 continue;
@@ -69,15 +88,6 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
 
             if visited.contains(&next) || banned_points.contains(&next) {
                 continue;
-            }
-
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
@@ -102,6 +112,11 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
 pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.extend(blocked);
+
+    let mut portals = HashMap::new();
+    for (idx, portal) in conf::PORTALS.iter().enumerate() {
+        portals.insert(portal, conf::PORTALS_DEST[idx].clone());
+    }
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
@@ -136,32 +151,38 @@ pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(
             return Some((cost, direction_path));
         }
 
+        // Check if current point is a portal entrance
+        if let Some(&next) = portals.get(&point) {
+            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
+                came_from.insert(next, (Direction::Stay, point));
+                g_scores.insert(next, tentative_g_score);
+                let f_score = tentative_g_score;
+                to_visit.push(Node {
+                    cost: f_score,
+                    point: next,
+                    passwall: 0,
+                });
+            }
+        }
+
         for &(i, j, direction) in &[
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
             (0, 1, Direction::Down),
             (0, -1, Direction::Up),
         ] {
-            let mut next = (point.0 + i, point.1 + j);
+            let next = (point.0 + i, point.1 + j);
 
             if visited.contains(&next) || banned_points.contains(&next) {
                 continue;
-            }
-
-            // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
             }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score + distance(next, end);
+                let f_score = tentative_g_score;
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
@@ -318,7 +339,7 @@ pub fn a_star_search_power(
                 g_scores.insert(next, tentative_g_score);
                 let mut penalty = 0;
                 penalty += openness_map.get(&next).unwrap_or(&1) - 1;
-                let f_score = tentative_g_score + crate::distance(next, end) - penalty;
+                let f_score = tentative_g_score - penalty;
                 if pw == 0 {
                     pw = 0;
                 } else {
@@ -361,7 +382,7 @@ pub fn a_star_search_power(
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score + crate::distance(next, end);
+                let f_score = tentative_g_score;
                 let mut new_pw = 0;
                 if pw > 0 {
                     new_pw = pw - 1;

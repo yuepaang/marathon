@@ -16,6 +16,8 @@ use algo::bfs;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
+use crate::algo::check_out_of_bound;
+
 // use crate::algo::{deal_with_enemy_nearby, move_enemy};
 
 mod algo;
@@ -162,6 +164,21 @@ fn check_stay_or_not(
     eaten_coins: HashSet<Point>,
 ) -> PyResult<Vec<Point>> {
     let banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
+
+    let mut enemies_all_pos = HashSet::new();
+    for &e in enemies_position.iter() {
+        for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
+            let next = (e.0 + i, e.1 + j);
+            if algo::check_out_of_bound(next) {
+                continue;
+            }
+            if banned_points.contains(&next) {
+                continue;
+            }
+            enemies_all_pos.insert(next);
+        }
+    }
+
     let coin_set: HashSet<Point> = conf::COINS
         .par_iter()
         .chain(conf::POWERUPS.par_iter())
@@ -174,24 +191,30 @@ fn check_stay_or_not(
         let move_to = get_diagonal_move(start, centroid);
         let escape_to = get_escape_move(start, &enemies_position);
 
-        if !banned_points.contains(&move_to) {
+        if !banned_points.contains(&move_to)
+            && !enemies_all_pos.contains(&move_to)
+            && !check_out_of_bound(move_to)
+        {
             return Ok(vec![move_to]);
         }
-        if !banned_points.contains(&escape_to) {
+        if !banned_points.contains(&escape_to)
+            && !enemies_all_pos.contains(&escape_to)
+            && !check_out_of_bound(escape_to)
+        {
             return Ok(vec![escape_to]);
         }
     }
 
     // Calculate the overall direction if the cell is further away from all enemies
-    for &(i, j, direction, consider_coin) in &[
-        (-1, 0, "LEFT", true),
-        (1, 0, "RIGHT", true),
-        (0, 1, "DOWN", true),
-        (0, -1, "UP", true),
-        (-1, 0, "LEFT", false),
-        (1, 0, "RIGHT", false),
-        (0, 1, "DOWN", false),
-        (0, -1, "UP", false),
+    for &(i, j, consider_coin) in &[
+        (-1, 0, true),
+        (1, 0, true),
+        (0, 1, true),
+        (0, -1, true),
+        (-1, 0, false),
+        (1, 0, false),
+        (0, 1, false),
+        (0, -1, false),
     ] {
         let mut all_away = true;
         let mut next = (start.0 + i, start.1 + j);
@@ -203,11 +226,7 @@ fn check_stay_or_not(
                 continue;
             }
         }
-        if enemies_position.contains(&next) {
-            continue;
-        }
 
-        // PORTAL MOVE
         let start_index = conf::PORTALS
             .iter()
             .position(|portal| start.0 == portal.0 && start.1 == portal.1)
@@ -220,6 +239,10 @@ fn check_stay_or_not(
         if index != 99 && start_index != 99 {
             next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
         }
+        if enemies_all_pos.contains(&next) {
+            continue;
+        }
+
         if pass_wall == 0 {
             if banned_points.contains(&next) {
                 continue;
@@ -267,12 +290,7 @@ fn check_stay_or_not(
         return Ok(vec![start]);
     }
 
-    for &(i, j, direction) in &[
-        (-1, 0, "LEFT"),
-        (1, 0, "RIGHT"),
-        (0, 1, "DOWN"),
-        (0, -1, "UP"),
-    ] {
+    for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
         let next = (start.0 + i, start.1 + j);
         // if algo::check_valid_move(start) < algo::check_valid_move(next)
         //     && shortest_path(next, enemies_position[0]).unwrap()
@@ -382,7 +400,7 @@ fn collect_coins_using_hull(start: Point, eaten_coins: HashSet<Point>) -> PyResu
 
     let mut hull_points = algo::graham_hull(coins_vec);
     hull_points.sort_by_key(|&p| distance(start, p));
-    let mut escape_path = Vec::new();
+    let mut collect_path = Vec::new();
 
     let mut target_hull_point = start.clone();
     let mut target_dist = i32::MAX;
@@ -413,8 +431,8 @@ fn collect_coins_using_hull(start: Point, eaten_coins: HashSet<Point>) -> PyResu
         }
     }
     let hull_path = algo::a_star_search(start, target_hull_point).unwrap();
-    escape_path.extend_from_slice(&hull_path);
-    Ok(escape_path)
+    collect_path.extend_from_slice(&hull_path);
+    Ok(collect_path)
 }
 
 // BASELINE of defenders with some simple strategies
@@ -426,6 +444,7 @@ fn collect_coins_using_powerup(
     mut pass_wall: usize,
     enemies_position: HashSet<Point>,
     openess_map: HashMap<Point, i32>,
+    max_depth: usize,
 ) -> PyResult<(Vec<Point>, Vec<Point>, usize)> {
     let origin = start.clone();
     // try not using portals
@@ -463,7 +482,7 @@ fn collect_coins_using_powerup(
             .map(|x| (x.0, x.1))
             .collect();
 
-        if search_depth > 10 {
+        if search_depth > max_depth {
             break;
         }
 

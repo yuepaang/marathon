@@ -21,6 +21,7 @@ use crate::Point;
 pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.extend(blocked);
+    banned_points.remove(&end);
 
     let mut portals = HashMap::new();
     for (idx, portal) in conf::PORTALS.iter().enumerate() {
@@ -112,6 +113,7 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
 pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(i32, Vec<String>)> {
     let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
     banned_points.extend(blocked);
+    banned_points.remove(&end);
 
     let mut portals = HashMap::new();
     for (idx, portal) in conf::PORTALS.iter().enumerate() {
@@ -289,7 +291,7 @@ pub fn a_star_search_power(
     start: Point,
     end: Point,
     passwall: usize,
-    banned_points: &HashSet<Point>,
+    init_banned_points: &HashSet<Point>,
     enemies_all_pos: &HashSet<Point>,
     openness_map: &HashMap<Point, i32>,
 ) -> Option<Vec<Point>> {
@@ -297,6 +299,8 @@ pub fn a_star_search_power(
     for (idx, portal) in conf::PORTALS.iter().enumerate() {
         portals.insert(portal, conf::PORTALS_DEST[idx].clone());
     }
+    let mut banned_points = init_banned_points.clone();
+    banned_points.remove(&end);
 
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
@@ -356,7 +360,7 @@ pub fn a_star_search_power(
         }
 
         for &(i, j, direction) in &[
-            (0, 0, Direction::Stay),
+            // (0, 0, Direction::Stay),
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
             (0, 1, Direction::Down),
@@ -382,7 +386,9 @@ pub fn a_star_search_power(
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
-                let f_score = tentative_g_score;
+                let mut penalty = 0;
+                penalty += openness_map.get(&next).unwrap_or(&1) - 1;
+                let f_score = tentative_g_score - penalty;
                 let mut new_pw = 0;
                 if pw > 0 {
                     new_pw = pw - 1;

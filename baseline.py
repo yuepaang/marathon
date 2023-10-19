@@ -71,9 +71,6 @@ def get_direction(curr, next):
             return "DOWN"
         elif true_next[1] == curr[1] - 1:
             return "UP"
-    print(curr)
-    print(next)
-    raise Exception("e")
     return "NO"
 
 
@@ -327,14 +324,46 @@ explore_paths_template = {
 explore_paths = deepcopy(explore_paths_template)
 
 
-def use_attacker(agent, enemies, powerup_clock) -> str:
+def get_neighbors(pos):
+    x, y = pos
+    possible_moves = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    return [
+        move
+        for move in possible_moves
+        if 0 <= move[0] < 24 and 0 <= move[1] < 24 and move not in global_walls_list
+    ]
+
+
+def compute_threat_for_position(pos, agents):
+    # Calculate a threat score based on distance to all agents.
+    # The closer an agent is, the higher the threat.
+    return sum(
+        1 / ((pos[0] - agent[0]) ** 2 + (pos[1] - agent[1]) ** 2 + 1e-6)
+        for agent in agents
+    )
+
+
+def predict_enemy_move(enemy_pos, agents):
+    neighbors = get_neighbors(enemy_pos)
+    threats = {
+        neighbor: compute_threat_for_position(neighbor, agents)
+        for neighbor in neighbors
+    }
+
+    # Return the direction with the least threat
+    move_to = min(threats, key=threats.get)
+    delta_x = move_to[0] - enemy_pos[0]
+    delta_y = move_to[1] - enemy_pos[1]
+    return (delta_x, delta_y)
+
+
+def use_attacker(agent, enemies, powerup_clock, main_chase, defender_next_move) -> str:
     # record powerups
-    if "passwall" in agent["self_agent"]["powerups"]:
-        passwall = agent["self_agent"]["powerups"]["passwall"]
-    else:
-        passwall = 0
+    passwall = agent["self_agent"]["powerups"].get("passwall", 0)
+
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
+    # explore phrase
     if len(enemies) == 0:
         explore_path = explore_paths[agent["self_agent"]["id"]]
         next_point = explore_path.pop(0)
@@ -362,29 +391,29 @@ def use_attacker(agent, enemies, powerup_clock) -> str:
     for k in cancel_key:
         del powerup_clock[k]
 
+    # print("haha")
+    enemies.sort(key=lambda x: rust_perf.shortest_path(current_pos, x))
+    # print("damn")
+    if (
+        main_chase.get(agent["self_agent"]["id"], (-1, -1)) == enemies[0]
+        or rust_perf.shortest_path(current_pos, enemies[0]) <= 4
+    ):
+        move_surround = False
+    else:
+        move_surround = True
+
+    # print("before")
     path = rust_perf.catch_enemies_using_powerup(
         current_pos,
         passwall,
         enemies,
+        defender_next_move,
+        move_surround,
     )
+    # print("after")
     if len(path) == 0:
-        print(
-            agent["self_agent"]["id"],
-            current_pos,
-            agent["self_agent"]["score"],
-            passwall,
-            enemies,
-        )
         return random.choice(ACTIONS)
 
-    # print(
-    #     path,
-    #     agent["self_agent"]["id"],
-    #     current_pos,
-    #     agent["self_agent"]["score"],
-    #     passwall,
-    #     enemies,
-    # )
     next_move = get_direction(current_pos, path[0])
     for powerup, _ in powerup_clock.items():
         powerup_clock[powerup] += 1
@@ -550,15 +579,15 @@ def use_defender(
         #     print("score:", agent["self_agent"]["score"])
         #     print(path)
 
-        if nearest_enemy_dist == 1:
-            print("**********")
-            print("id: ", agent_id)
-            print(current_pos)
-            print(attacker_locations)
-            print(has_sword, shield)
-            print("dist:", total_dist)
-            print("score:", agent["self_agent"]["score"])
-            print(path)
+        # if nearest_enemy_dist == 1:
+        #     print("**********")
+        #     print("id: ", agent_id)
+        #     print(current_pos)
+        #     print(attacker_locations)
+        #     print(has_sword, shield)
+        #     print("dist:", total_dist)
+        #     print("score:", agent["self_agent"]["score"])
+        #     print(path)
         return get_direction(current_pos, path[0])
 
 
@@ -579,7 +608,8 @@ for seed in seeds:
 
     eatten_set = set()
     step = 0
-    powerup_clock = {}
+    defender_powerup_clock = {}
+    attacker_powerup_clock = {}
     start_game_time = time.time()
     map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
     for x, y in global_walls_list:
@@ -614,22 +644,32 @@ for seed in seeds:
         # )
         # print("p", predicted_attacker_pos)
 
-        attacker_locations = set()
         defender_locations = set()
+        my_pos = []
+        main_chase = {}
         for k, v in attacker_state.items():
+            my_pos.append((v["self_agent"]["x"], v["self_agent"]["y"]))
             other_agent_list = v["other_agents"]
             for other_agent in other_agent_list:
                 if other_agent["role"] == "DEFENDER":
-                    attacker_locations.add((other_agent["x"], other_agent["y"]))
-                else:
                     defender_locations.add((other_agent["x"], other_agent["y"]))
+                    main_chase[int(k)] = (other_agent["x"], other_agent["y"])
 
+        defender_next_move = {}
+        for enemy in defender_locations:
+            defender_next_move[enemy] = predict_enemy_move(enemy, my_pos)
         # attacker_actions = {
         #     _id: random.choice(ACTIONS) for _id in attacker_state.keys()
         # }
         # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
         attacker_actions = {
-            _id: use_attacker(attacker_state[_id], list(defender_locations), {})
+            _id: use_attacker(
+                attacker_state[_id],
+                list(defender_locations),
+                attacker_powerup_clock,
+                main_chase,
+                defender_next_move,
+            )
             for _id in attacker_state.keys()
         }
 
@@ -674,12 +714,13 @@ for seed in seeds:
         # print(predicted_attacker_pos)
         # raise Exception("e")
 
+        # print(f"a, {step}/1152")
         other_target = {i: [] for i in range(4, 8)}
         defender_actions = {
             _id: use_defender(
                 defender_state[_id],
                 eatten_set,
-                powerup_clock,
+                defender_powerup_clock,
                 other_target,
                 attacker_locations,
                 # predicted_attacker_pos,
@@ -691,7 +732,7 @@ for seed in seeds:
             attacker_actions=attacker_actions, defender_actions=defender_actions
         )
         step += 1
-        # print(f"{step}/1152")
+        # print(f"d,{step}/1152")
 
     # get game result
     print(f"seed: {seed} --- game result:\r\n", game.get_result())

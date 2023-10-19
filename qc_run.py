@@ -97,11 +97,11 @@ for seed in seeds:
         # defender_actions = {_id: "STAY" for _id in defender_obs.keys()}
         # print(round(time.time() - step_start, 3))
         # print()
-        defender_actions = py_run(defender_obs, defender_powerup_clock, eatten_set)
+        defender_actions = py_run(defender_obs, defender_powerup_clock,
+                                  eatten_set)
 
-        game.apply_actions(
-            attacker_actions=attacker_actions, defender_actions=defender_actions
-        )
+        game.apply_actions(attacker_actions=attacker_actions,
+                           defender_actions=defender_actions)
         step += 1
         # time.sleep(0.5)
         # print(f"{step}/1152")
@@ -109,10 +109,8 @@ for seed in seeds:
     # get game result
     print(f"seed: {seed} --- game result:\r\n", game.get_result())
     print("elasped time: ", time.time() - start_game_time, "s")
-    if (
-        game.get_result()["players"][0]["score"]
-        < game.get_result()["players"][1]["score"]
-    ):
+    if (game.get_result()["players"][0]["score"] <
+            game.get_result()["players"][1]["score"]):
         win_count += 1
     attacker_score += game.get_result()["players"][0]["score"]
     defender_score += game.get_result()["players"][1]["score"]

@@ -63,6 +63,10 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
         ] {
             let mut next = (point.0 + i, point.1 + j);
 
+            if check_out_of_bound(next) {
+                continue;
+            }
+
             if visited.contains(&next) || banned_points.contains(&next) {
                 continue;
             }
@@ -265,6 +269,7 @@ pub fn a_star_search_power(
     end: Point,
     passwall: usize,
     banned_points: &HashSet<Point>,
+    enemies_all_pos: &HashSet<Point>,
     openness_map: &HashMap<Point, i32>,
 ) -> Option<Vec<Point>> {
     let mut portals = HashMap::new();
@@ -319,13 +324,14 @@ pub fn a_star_search_power(
                 } else {
                     pw -= 1;
                 }
-                to_visit.push(Node {
-                    cost: f_score,
-                    point: next,
-                    passwall: pw,
-                });
+                if !enemies_all_pos.contains(&next) {
+                    to_visit.push(Node {
+                        cost: f_score,
+                        point: next,
+                        passwall: pw,
+                    });
+                }
             }
-            // continue;
         }
 
         for &(i, j, direction) in &[
@@ -347,14 +353,9 @@ pub fn a_star_search_power(
                     continue;
                 }
             }
-            // PORTAL MOVE
-            // let index = conf::PORTALS
-            //     .iter()
-            //     .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-            //     .unwrap_or(99);
-            // if index != 99 {
-            //     next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            // }
+            if enemies_all_pos.contains(&next) {
+                continue;
+            }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {

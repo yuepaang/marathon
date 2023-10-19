@@ -523,8 +523,8 @@ def use_defender(
                 path = rust_perf.check_stay_or_not(
                     current_pos, attacker_list, passwall, eaten_set
                 )
-                print(attacker_list)
-                print(current_pos, path)
+                # print(attacker_list)
+                # print(current_pos, path)
                 return get_direction(current_pos, path[0])
                 # print(current_pos, attacker_list)
                 # print(target_coin_group)

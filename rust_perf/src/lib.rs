@@ -292,16 +292,15 @@ fn check_stay_or_not(
 
     for &(i, j) in &[(-1, 0), (1, 0), (0, 1), (0, -1)] {
         let next = (start.0 + i, start.1 + j);
-        // if algo::check_valid_move(start) < algo::check_valid_move(next)
-        //     && shortest_path(next, enemies_position[0]).unwrap()
-        //         > shortest_path(start, enemies_position[0]).unwrap()
+        if algo::check_out_of_bound(next) {
+            continue;
+        }
+        if banned_points.contains(&next) {
+            continue;
+        }
         if shortest_path(next, enemies_position[0]).unwrap()
             > shortest_path(start, enemies_position[0]).unwrap()
         {
-            // println!(
-            //     "---- current: {:?}, enemies: {:?} more valid next: {:?} ",
-            //     start, enemies_position, next
-            // );
             return Ok(vec![next]);
         }
     }

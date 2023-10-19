@@ -48,7 +48,6 @@ for seed in seeds:
         # get game state for player:
         attacker_obs = game.get_agent_states_by_player("attacker")
         defender_obs = game.get_agent_states_by_player("defender")
-        print(attacker_obs)
         print_map_state(game.get_map_states(), map_size)
         attacker.update(attacker_obs)
 

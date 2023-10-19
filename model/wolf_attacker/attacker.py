@@ -455,13 +455,13 @@ class Attacker:
         hunt = self.to_hunt is not None
         chase = False
         for id, state in self.agt_state.items():
-            print("state", id, state)
+            # print("state", id, state)
             if state["task"] == self.HUNT:
                 self.to_hunt = state["target"]
                 hunt = True
             chase = chase | (state["task"] == self.CHASE)
 
-        print("in_sign", self.in_sign, chase, hunt, self.to_hunt)
+        # print("in_sign", self.in_sign, chase, hunt, self.to_hunt)
 
         if self.round < 20 and len(
                 self.in_sign) == 0 and not chase and not hunt:
@@ -531,6 +531,6 @@ class Attacker:
                 # print("  ", id, "->", coor, path, self.PATROL)
 
         self.round += 1
-        print(action)
+        # print(action)
 
         return action

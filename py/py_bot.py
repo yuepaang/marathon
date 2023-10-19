@@ -184,7 +184,7 @@ def defend(
     # each agent has its own target coin
     eaten_set = deepcopy(input_eaten_set)
     rest_coin_count = len([p for p in global_coin_set if p not in input_eaten_set])
-    other_group_set = set([p for _, pl in other_target.items() for p in pl])
+    other_group_set = set([p for _, pl in other_target.items() for p in pl[:3]])
     rest_coin_count = len(
         [p for p in global_coin_set if p not in input_eaten_set.union(other_group_set)]
     )
@@ -230,16 +230,27 @@ def defend(
 
     if enemy_nearby_count < 2:
         target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
-            current_pos, eaten_set, passwall, set(attacker_list), openness_map
+            agent_id, current_pos, eaten_set, passwall, set(attacker_list), openness_map
         )
         other_target[agent_id] = target_coin_group
-        return get_direction(current_pos, path[0])
+        if path:
+            return get_direction(current_pos, path[0])
+        else:
+            if nearest_enemy_dist == 1:
+                path = rust_perf.check_stay_or_not(
+                    current_pos, attacker_list, passwall, eaten_set
+                )
+                return get_direction(current_pos, path[0])
+            return random.choice(ACTIONS)
 
     else:
-        next_move = rust_perf.check_stay_or_not(
+        path = rust_perf.check_stay_or_not(
             current_pos, attacker_list, passwall, eaten_set
         )
-        return next_move
+        if path:
+            return get_direction(current_pos, path[0])
+        else:
+            return random.choice(ACTIONS)
 
 
 class RealGame(marathon.Game):

@@ -26,6 +26,9 @@ import random
 
 import rust_perf
 
+print(rust_perf.get_direction((0, 1), (0, 3), [(0, 2)]))
+raise Exception("e")
+
 ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
 with open("map.json") as f:
@@ -450,7 +453,7 @@ def use_defender(
 
     # each agent has its own target coin
     eaten_set = deepcopy(input_eaten_set)
-    other_group_set = set([p for _, pl in other_target.items() for p in pl])
+    other_group_set = set([p for _, pl in other_target.items() for p in pl[:3]])
     rest_coin_count = len(
         [p for p in global_coin_set if p not in input_eaten_set.union(other_group_set)]
     )
@@ -510,9 +513,17 @@ def use_defender(
         )
         other_target[agent_id] = target_coin_group
         if len(path) == 0:
-            # print(current_pos, attacker_list)
-            # print(target_coin_group)
-            # print(rest_coin_count)
+            if nearest_enemy_dist == 1:
+                path = rust_perf.check_stay_or_not(
+                    current_pos, attacker_list, passwall, eaten_set
+                )
+                print(attacker_list)
+                print(current_pos, path)
+                return get_direction(current_pos, path[0])
+                # print(current_pos, attacker_list)
+                # print(target_coin_group)
+                # print(rest_coin_count)
+                # raise Exception("e")
             return random.choice(ACTIONS)
             # raise Exception("e")
         return get_direction(current_pos, path[0])

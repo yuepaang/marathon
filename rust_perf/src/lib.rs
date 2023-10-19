@@ -16,7 +16,7 @@ use algo::bfs;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-use crate::algo::{deal_with_enemy_nearby, move_enemy};
+// use crate::algo::{deal_with_enemy_nearby, move_enemy};
 
 mod algo;
 mod conf;
@@ -364,6 +364,7 @@ fn catch_enemies_using_powerup(
             enemies[0],
             pass_wall,
             &banned_points,
+            &HashSet::new(),
             &HashMap::new(),
         )
         .unwrap_or(vec![]);
@@ -428,11 +429,12 @@ fn collect_coins_using_powerup(
 ) -> PyResult<(Vec<Point>, Vec<Point>, usize)> {
     let origin = start.clone();
     // try not using portals
-    let mut banned_points: HashSet<_> = conf::WALLS
+    let banned_points: HashSet<_> = conf::WALLS
         .par_iter()
         .chain(conf::PORTALS.par_iter())
         .cloned()
         .collect();
+    let mut enemies_all_pos = HashSet::new();
     for &e in enemies_position.iter() {
         for &(i, j) in &[(0, 0), (-1, 0), (1, 0), (0, 1), (0, -1)] {
             let next = (e.0 + i, e.1 + j);
@@ -442,7 +444,7 @@ fn collect_coins_using_powerup(
             if banned_points.contains(&next) {
                 continue;
             }
-            banned_points.insert(next);
+            enemies_all_pos.insert(next);
         }
     }
 
@@ -468,12 +470,20 @@ fn collect_coins_using_powerup(
         let paths: Vec<Vec<Point>> = positive_targets
             .par_iter()
             .filter_map(|&target| {
-                algo::a_star_search_power(start, target, pass_wall, &banned_points, &openess_map)
+                algo::a_star_search_power(
+                    start,
+                    target,
+                    pass_wall,
+                    &banned_points,
+                    &enemies_all_pos,
+                    &openess_map,
+                )
             })
             .collect();
 
         // there is no potential target
         if paths.is_empty() && search_depth == 1 {
+            // TODO: avoid enemy within distance 1
             // println!(
             //     "agent {},NO TARGET! o: {:?} current position: {:?}, targets: {:?}, eaten number: {:?}, enemies: {:?}",
             //     agent_id,

@@ -26,8 +26,8 @@ import random
 
 import rust_perf
 
-print(rust_perf.get_direction((0, 1), (0, 3), [(0, 2)]))
-raise Exception("e")
+# print(rust_perf.get_direction_path((1, 1), (23, 22), []))
+# raise Exception("e")
 
 ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
@@ -509,11 +509,17 @@ def use_defender(
     # one enemy could not catch me
     if enemy_nearby_count < 2:
         target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
-            agent_id, current_pos, eaten_set, passwall, set(attacker_list), openness_map
+            agent_id,
+            current_pos,
+            eaten_set,
+            passwall,
+            set(attacker_list),
+            openness_map,
+            7,
         )
         other_target[agent_id] = target_coin_group
         if len(path) == 0:
-            if nearest_enemy_dist == 1:
+            if nearest_enemy_dist <= 2:
                 path = rust_perf.check_stay_or_not(
                     current_pos, attacker_list, passwall, eaten_set
                 )
@@ -524,8 +530,9 @@ def use_defender(
                 # print(target_coin_group)
                 # print(rest_coin_count)
                 # raise Exception("e")
-            return random.choice(ACTIONS)
+            # print(current_pos, attacker_list)
             # raise Exception("e")
+            return random.choice(ACTIONS)
         return get_direction(current_pos, path[0])
 
     else:

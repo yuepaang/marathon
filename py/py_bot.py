@@ -105,10 +105,7 @@ def get_all_nearby_pos(agent_pos: dict, map_in_heart: list):
 
 def attack(agent, enemies, powerup_clock, explore_paths, explore_paths_template) -> str:
     # record powerups
-    if "passwall" in agent.get_self_agent().powerups:
-        passwall = agent.get_self_agent().powerups["passwall"]
-    else:
-        passwall = 0
+    passwall = agent.get_self_agent().powerups.get("passwall", 0)
 
     current_pos = (
         agent.get_self_agent().get_pos()["x"],
@@ -230,13 +227,19 @@ def defend(
 
     if enemy_nearby_count < 2:
         target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
-            agent_id, current_pos, eaten_set, passwall, set(attacker_list), openness_map
+            agent_id,
+            current_pos,
+            eaten_set,
+            passwall,
+            set(attacker_list),
+            openness_map,
+            7,
         )
         other_target[agent_id] = target_coin_group
         if path:
             return get_direction(current_pos, path[0])
         else:
-            if nearest_enemy_dist == 1:
+            if nearest_enemy_dist <= 2:
                 path = rust_perf.check_stay_or_not(
                     current_pos, attacker_list, passwall, eaten_set
                 )

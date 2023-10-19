@@ -14,6 +14,7 @@ use rayon::prelude::*;
 
 use crate::conf;
 use crate::distance;
+use crate::shortest_path;
 use crate::Direction;
 use crate::Node;
 use crate::Point;
@@ -262,18 +263,13 @@ pub fn move_enemy(enemy_position: Point, target_position: Point) -> Point {
 pub fn a_star_search_power(
     start: Point,
     end: Point,
-    allies: Vec<Point>,
     passwall: usize,
+    banned_points: &HashSet<Point>,
+    openness_map: &HashMap<Point, i32>,
 ) -> Option<Vec<Point>> {
-    let mut banned_points: HashSet<_> = conf::WALLS.iter().cloned().collect();
-    // valueless position
-    banned_points.insert((23, 0));
-    // TODO: try
-    for p in conf::PORTALS.iter() {
-        banned_points.insert(*p);
-    }
-    for p in conf::PORTALS_DEST.iter() {
-        banned_points.insert(*p);
+    let mut portals = HashMap::new();
+    for (idx, portal) in conf::PORTALS.iter().enumerate() {
+        portals.insert(portal, conf::PORTALS_DEST[idx].clone());
     }
 
     let mut to_visit = BinaryHeap::new();
@@ -292,7 +288,7 @@ pub fn a_star_search_power(
     while let Some(Node {
         cost: _,
         point,
-        passwall: pw,
+        passwall: mut pw,
     }) = to_visit.pop()
     {
         if point == end {
@@ -309,6 +305,29 @@ pub fn a_star_search_power(
             return Some(path);
         }
 
+        // Check if current point is a portal entrance
+        if let Some(&next) = portals.get(&point) {
+            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+            if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
+                came_from.insert(next, (Direction::Stay, point));
+                g_scores.insert(next, tentative_g_score);
+                let mut penalty = 0;
+                penalty += openness_map.get(&next).unwrap_or(&1) - 1;
+                let f_score = tentative_g_score + crate::distance(next, end) - penalty;
+                if pw == 0 {
+                    pw = 0;
+                } else {
+                    pw -= 1;
+                }
+                to_visit.push(Node {
+                    cost: f_score,
+                    point: next,
+                    passwall: pw,
+                });
+            }
+            // continue;
+        }
+
         for &(i, j, direction) in &[
             (0, 0, Direction::Stay),
             (-1, 0, Direction::Left),
@@ -316,40 +335,41 @@ pub fn a_star_search_power(
             (0, 1, Direction::Down),
             (0, -1, Direction::Up),
         ] {
-            let mut next = (point.0 + i, point.1 + j);
+            let next = (point.0 + i, point.1 + j);
             if check_out_of_bound(next) {
                 continue;
             }
             if visited.contains(&next) {
                 continue;
             }
-            if allies.contains(&next) {
-                continue;
-            }
-            if pw <= 0 {
+            if pw == 0 {
                 if banned_points.contains(&next) {
                     continue;
                 }
             }
-
             // PORTAL MOVE
-            let index = conf::PORTALS
-                .iter()
-                .position(|portal| next.0 == portal.0 && next.1 == portal.1)
-                .unwrap_or(99);
-            if index != 99 {
-                next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
-            }
+            // let index = conf::PORTALS
+            //     .iter()
+            //     .position(|portal| next.0 == portal.0 && next.1 == portal.1)
+            //     .unwrap_or(99);
+            // if index != 99 {
+            //     next = (conf::PORTALS_DEST[index].0, conf::PORTALS_DEST[index].1);
+            // }
 
             let tentative_g_score = g_scores.get(&point).unwrap() + 1;
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let f_score = tentative_g_score + crate::distance(next, end);
+                let mut new_pw = 0;
+                if pw > 0 {
+                    new_pw = pw - 1;
+                }
+
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
-                    passwall: pw - 1,
+                    passwall: new_pw,
                 });
             }
         }
@@ -522,7 +542,7 @@ pub fn get_all_nearby_pos(
     let delta = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 
     let mut new_pos: HashMap<usize, Vec<Point>> = HashMap::new();
-    for (&id, pos) in agent_pos.iter() {
+    for (&id, _) in agent_pos.iter() {
         let mut positions = Vec::new();
         for &d in &delta {
             let new_position = (
@@ -563,39 +583,80 @@ pub fn get_all_nearby_pos(
     next_pos
 }
 
+fn sp(start: Point, end: Point) -> Option<i32> {
+    if start == end {
+        return Some(0);
+    }
+    let directions: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+    let walls: HashSet<Point> = conf::WALLS.par_iter().map(|x| (x.0, x.1)).collect();
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    let mut portals = HashMap::new();
+    for (idx, portal) in conf::PORTALS.iter().enumerate() {
+        portals.insert(portal, conf::PORTALS_DEST[idx].clone());
+    }
+    queue.push_back((start, 0));
+
+    while let Some((current, dist)) = queue.pop_front() {
+        if current == end {
+            return Some(dist);
+        }
+
+        // Check if current point is a portal entrance
+        if let Some(&portal_exit) = portals.get(&current) {
+            if !visited.contains(&portal_exit) {
+                visited.insert(portal_exit);
+                queue.push_back((portal_exit, dist + 1));
+                continue;
+            }
+        }
+
+        for &direction in directions.iter() {
+            let next_point = (current.0 + direction.0, current.1 + direction.1);
+
+            if !visited.contains(&next_point) {
+                if walls.contains(&next_point) && next_point != end {
+                    continue;
+                }
+
+                visited.insert(next_point);
+                queue.push_back((next_point, dist + 1));
+            }
+        }
+    }
+
+    None
+}
+
 pub fn dfs(
     agents: &Vec<usize>,
     positions: &HashMap<usize, Point>,
-    map_score: &Vec<Vec<f32>>,
-    mut reward: f32,
+    my_pos: &HashMap<usize, Point>,
+    mut reward: i32,
     visited: &HashMap<usize, HashSet<Point>>,
     step: usize,
     max_step: usize,
-    max_reward: &mut Vec<f32>,
+    max_reward: &mut Vec<i32>,
 ) {
     if step > max_step {
         return;
     }
 
-    let mut map_copy = map_score.clone();
     let mut visited_copy = HashMap::new();
     for (id, set) in visited.iter() {
         visited_copy.insert(*id, set.clone());
     }
 
-    // let pos = Vec::new();
-    let crowd = 0.0;
-
-    for (id, agent_pos) in positions.iter() {
+    for (id, &agent_pos) in positions.iter() {
         visited_copy
             .entry(*id)
             .or_insert_with(HashSet::new)
             .insert(agent_pos.clone());
-        reward +=
-            map_copy[agent_pos.0 as usize][agent_pos.1 as usize] * f32::powf(0.99, step as f32);
-        map_copy[agent_pos.0 as usize][agent_pos.1 as usize] = 0.0;
+        for (_, &mp) in my_pos.iter() {
+            // println!("agent_pos: {:?}, mp: {:?}", agent_pos, mp);
+            reward += 24 * 24 - sp(agent_pos, mp).unwrap_or(0);
+        }
     }
-    reward -= crowd;
 
     if reward > max_reward[0] {
         max_reward[0] = reward;
@@ -607,7 +668,7 @@ pub fn dfs(
         dfs(
             agents,
             p,
-            &map_copy,
+            my_pos,
             reward,
             &visited_copy,
             step + 1,

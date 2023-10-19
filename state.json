@@ -1,0 +1,361 @@
+{
+    "0": {
+        "walls": [
+            {
+                "x": 21,
+                "y": 18
+            },
+            {
+                "x": 21,
+                "y": 19
+            },
+            {
+                "x": 21,
+                "y": 20
+            },
+            {
+                "x": 21,
+                "y": 21
+            }
+        ],
+        "portals": [],
+        "powerups": [
+            {
+                "x": 23,
+                "y": 17,
+                "powerup": "Powerup.SWORD"
+            }
+        ],
+        "coins": [
+            {
+                "x": 23,
+                "y": 18,
+                "score": 2
+            }
+        ],
+        "other_agents": [],
+        "self_agent": {
+            "id": 0,
+            "powerups": {},
+            "role": "ATTACKER",
+            "player_id": "attacker",
+            "vision_range": 2,
+            "score": 0,
+            "invulnerability_duration": 0,
+            "x": 23,
+            "y": 19
+        }
+    },
+    "1": {
+        "walls": [
+            {
+                "x": 2,
+                "y": 20
+            },
+            {
+                "x": 2,
+                "y": 21
+            },
+            {
+                "x": 3,
+                "y": 21
+            }
+        ],
+        "portals": [],
+        "powerups": [
+            {
+                "x": 3,
+                "y": 20,
+                "powerup": "Powerup.SHIELD"
+            }
+        ],
+        "coins": [],
+        "other_agents": [
+            {
+                "id": 4,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 0,
+                "y": 22
+            },
+            {
+                "id": 6,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 0,
+                "y": 23
+            },
+            {
+                "id": 2,
+                "powerups": {},
+                "role": "ATTACKER",
+                "player_id": "attacker",
+                "vision_range": 2,
+                "score": 12,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 3,
+                "powerups": {},
+                "role": "ATTACKER",
+                "player_id": "attacker",
+                "vision_range": 2,
+                "score": 4,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 5,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 3,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 7,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 23
+            }
+        ],
+        "self_agent": {
+            "id": 1,
+            "powerups": {},
+            "role": "ATTACKER",
+            "player_id": "attacker",
+            "vision_range": 2,
+            "score": 4,
+            "invulnerability_duration": 0,
+            "x": 1,
+            "y": 22
+        }
+    },
+    "2": {
+        "walls": [
+            {
+                "x": 2,
+                "y": 20
+            },
+            {
+                "x": 2,
+                "y": 21
+            },
+            {
+                "x": 3,
+                "y": 21
+            }
+        ],
+        "portals": [],
+        "powerups": [
+            {
+                "x": 3,
+                "y": 20,
+                "powerup": "Powerup.SHIELD"
+            }
+        ],
+        "coins": [],
+        "other_agents": [
+            {
+                "id": 4,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 0,
+                "y": 22
+            },
+            {
+                "id": 6,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 0,
+                "y": 23
+            },
+            {
+                "id": 1,
+                "powerups": {},
+                "role": "ATTACKER",
+                "player_id": "attacker",
+                "vision_range": 2,
+                "score": 4,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 3,
+                "powerups": {},
+                "role": "ATTACKER",
+                "player_id": "attacker",
+                "vision_range": 2,
+                "score": 4,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 5,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 3,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 7,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 23
+            }
+        ],
+        "self_agent": {
+            "id": 2,
+            "powerups": {},
+            "role": "ATTACKER",
+            "player_id": "attacker",
+            "vision_range": 2,
+            "score": 12,
+            "invulnerability_duration": 0,
+            "x": 1,
+            "y": 22
+        }
+    },
+    "3": {
+        "walls": [
+            {
+                "x": 2,
+                "y": 20
+            },
+            {
+                "x": 2,
+                "y": 21
+            },
+            {
+                "x": 3,
+                "y": 21
+            }
+        ],
+        "portals": [],
+        "powerups": [
+            {
+                "x": 3,
+                "y": 20,
+                "powerup": "Powerup.SHIELD"
+            }
+        ],
+        "coins": [],
+        "other_agents": [
+            {
+                "id": 4,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 0,
+                "y": 22
+            },
+            {
+                "id": 6,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 0,
+                "y": 23
+            },
+            {
+                "id": 1,
+                "powerups": {},
+                "role": "ATTACKER",
+                "player_id": "attacker",
+                "vision_range": 2,
+                "score": 4,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 2,
+                "powerups": {},
+                "role": "ATTACKER",
+                "player_id": "attacker",
+                "vision_range": 2,
+                "score": 12,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 5,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 3,
+                "x": 1,
+                "y": 22
+            },
+            {
+                "id": 7,
+                "powerups": {},
+                "role": "DEFENDER",
+                "player_id": "defender",
+                "vision_range": 2,
+                "score": 0,
+                "invulnerability_duration": 0,
+                "x": 1,
+                "y": 23
+            }
+        ],
+        "self_agent": {
+            "id": 3,
+            "powerups": {},
+            "role": "ATTACKER",
+            "player_id": "attacker",
+            "vision_range": 2,
+            "score": 4,
+            "invulnerability_duration": 0,
+            "x": 1,
+            "y": 22
+        }
+    }
+}

@@ -3,14 +3,13 @@ import time
 import random
 import numpy as np
 from game import Game
-from model.polygon_attacker.attacker import PolygonAttacker
+from model.wolf_attacker.attacker import Attacker
 from model.utils import *
 
-import rust_perf
-
-x = rust_perf.get_direction((0, 0), (1, 1), [(2, 2), (3, 3)])
-print(x)
-assert False
+# import rust_perf
+# x = rust_perf.get_direction_path((0, 0), (22, 23), [(1, 2), (1, 10)])
+# print(x)
+# assert False
 
 ACTIONS = ["STAY", "LEFT", "RIGHT", "DOWN", "UP"]
 
@@ -37,8 +36,7 @@ for seed in seeds:
     attacker_ids = sorted(list(attacker_obs.keys()))
     defender_ids = sorted(list(defender_obs.keys()))
 
-    attacker = PolygonAttacker(map_size, attacker_ids, defender_ids,
-                               get_walls())
+    attacker = Attacker(map_size, attacker_ids, defender_ids, get_walls())
 
     eatten_set = set()
     step = 0
@@ -50,6 +48,7 @@ for seed in seeds:
         # get game state for player:
         attacker_obs = game.get_agent_states_by_player("attacker")
         defender_obs = game.get_agent_states_by_player("defender")
+        print(attacker_obs)
         print_map_state(game.get_map_states(), map_size)
         attacker.update(attacker_obs)
 
@@ -59,6 +58,7 @@ for seed in seeds:
             _id: random.choice(ACTIONS)
             for _id in defender_obs.keys()
         }
+        # defender_actions = {_id: "STAY" for _id in defender_obs.keys()}
         # print(round(time.time() - step_start, 3))
         # print()
 

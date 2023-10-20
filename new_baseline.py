@@ -401,6 +401,7 @@ class Naga:
                     p = self.map_info.path.to_point(powerup_index)
                     p.point = 0
 
+            # stand in point so no value
             agent_index = self.map_info.path.to_index_xy(
                 agent_state["self_agent"]["x"], agent_state["self_agent"]["y"]
             )
@@ -414,6 +415,7 @@ class Naga:
                     continue
                 self.vision_grids_index[idx] = True
 
+            # all enemies in vision
             self.n_enemy = 0
             for o_id, other_agent in self.other_agents.items():
                 pos = self.map_info.path.to_index_xy(other_agent["x"], other_agent["y"])
@@ -680,14 +682,6 @@ class Naga:
             score = 0.0
             for loc in next_loc:
                 if self.danger_in_vision[loc] or self.danger_eat_in_vision[loc]:
-                    print(self.agent_states)
-                    print("-------")
-                    print(self.other_agents)
-                    print("-------")
-                    print(md)
-                    print("-------")
-                    print(dir_score)
-                    raise Exception("e")
                     score -= 1e3
             dir_score[idx] += score
 
@@ -1007,7 +1001,7 @@ game = Game(map)
 win_count = 0
 attacker_score = 0
 defender_score = 0
-seeds = [random.randint(0, 1000000) for _ in range(5)]
+seeds = [random.randint(0, 1000000) for _ in range(2)]
 # seeds = [170587]
 for seed in seeds:
     game.reset(attacker="attacker", defender="defender", seed=seed)
@@ -1043,10 +1037,10 @@ for seed in seeds:
         #     print(naga.power_scores)
         #     raise Exception("b")
 
-        # attacker_actions = {
-        #     _id: random.choice(naga.action) for _id in attacker_state.keys()
-        # }
-        attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
+        attacker_actions = {
+            _id: random.choice(naga.action) for _id in attacker_state.keys()
+        }
+        # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
 
         attacker_locs = set()
         my_locs = {}

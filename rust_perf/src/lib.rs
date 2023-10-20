@@ -94,7 +94,7 @@ fn get_direction_path(
     blocked: Vec<Point>,
 ) -> PyResult<(i32, Vec<String>)> {
     let blocked: HashSet<Point> = blocked.into_iter().collect();
-    let direction_path = algo::astar_path(start, end, blocked).unwrap();
+    let direction_path = algo::astar_path(start, end, blocked).unwrap_or((0, vec![]));
     Ok(direction_path)
 }
 

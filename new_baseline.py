@@ -141,6 +141,12 @@ class Path:
                             self.to_index(p.next[d].next[dd])
                         ] = True
 
+    def recal_dist(self, G):
+        self.dist = G
+        self.dist = floyd(
+            self.node_num, np.array(self.dist), np.array(self.path)
+        ).tolist()
+
     def get_cost(self, start: Point, end: Point):
         return self.dist[self.to_index(start)][self.to_index(end)]
 
@@ -500,9 +506,15 @@ class Naga:
             self.all_enemy_in_vision = False
             if self.n_enemy == 4:
                 self.all_enemy_in_vision = True
+
             # TODO: passwall
+            shown_pos = set()
             for o_id, other_agent in self.other_agents.items():
                 pos = self.map_info.path.to_index_xy(other_agent["x"], other_agent["y"])
+                if pos in shown_pos:
+                    continue
+                shown_pos.add((other_agent["x"], other_agent["y"]))
+                # print((other_agent["x"], other_agent["y"]))
                 p = self.map_info.path.to_point(pos)
                 for d in [
                     DIRECTION.STAY,
@@ -531,6 +543,10 @@ class Naga:
                             )
                             self.danger_eat_in_vision[portal_next_idx] = True
                 # print(self.danger_in_vision)
+                # print(self.danger_eat_in_vision)
+                # for idx, d in enumerate(self.danger_eat_in_vision):
+                #     if d:
+                #         print(self.map_info.path.to_point(idx))
                 # print(self.map_info.path.is_danger_index)
                 # raise Exception("e")
 
@@ -543,6 +559,7 @@ class Naga:
                 danger = self.vec_danger[o_id]
                 for i in range(node_num):
                     self.all_danger[i] += danger[i]
+
         next_loc_set = set()
         for o_id, other_agent in self.other_agents.items():
             if other_agent["role"] == "ATTACKER":
@@ -557,6 +574,7 @@ class Naga:
                 ]:
                     next_loc = self.map_info.path.to_index(op.next[d])
                     next_loc_set.add(next_loc)
+
         for i in range(node_num):
             for dp in self.map_info.path.to_point(i).next.values():
                 j = self.map_info.path.to_index(dp)
@@ -578,8 +596,7 @@ class Naga:
                         G[i][j] = 100
                 else:
                     G[i][j] = 0
-        # print(G)
-        # raise Exception("e")
+        self.map_info.path.recal_dist(G)
 
     def predict_enemy(self, step: int):
         # self.map_enemy_predict = dict()
@@ -726,6 +743,41 @@ class Naga:
         reach_size = [
             self.map_info.path.node_num for _ in range(self.map_info.path.node_num)
         ]
+        for _, agent in self.other_agents.items():
+            pos = self.map_info.path.to_index_xy(agent["x"], agent["y"])
+            ep = self.map_info.path.to_point(pos)
+            reach_size[pos] = 0
+            for d in [
+                DIRECTION.STAY,
+                DIRECTION.UP,
+                DIRECTION.DOWN,
+                DIRECTION.LEFT,
+                DIRECTION.RIGHT,
+            ]:
+                idx = self.map_info.path.to_index(ep.next[d])
+                reach_size[idx] = 0
+        next_loc_set = set()
+        for _, agent in self.agent_states.items():
+            agent_p = self.map_info.path.to_point(
+                self.map_info.path.to_index_xy(agent["self"]["x"], agent["self"]["y"])
+            )
+            for d in [
+                DIRECTION.UP,
+                DIRECTION.DOWN,
+                DIRECTION.LEFT,
+                DIRECTION.RIGHT,
+            ]:
+                next_loc_set.add(self.map_info.path.to_index(agent_p.next[d]))
+
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
+            next_loc = []
+            continue_flag = False
+            for _, agent in self.other_agents.items():
+                a
+            for sds in single_direction_score:
+                if md[sds[0]] == sds[1].value:
+                    dir_score[idx] += sds[3] / (self.map_info.vision * 5)
 
     def search_enemy(self, dir_score):
         map_danger: Dict[int, float] = {}

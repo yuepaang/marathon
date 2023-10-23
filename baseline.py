@@ -484,24 +484,18 @@ def use_defender(
     eaten_set = deepcopy(input_eaten_set)
     other_group_set = set([p for _, pl in other_target.items() for p in pl[:3]])
     rest_coin_count = len(
-        [p for p in global_coin_set if p not in input_eaten_set.union(other_group_set)]
+        [p for p in global_coin_set if p not in eaten_set.union(other_group_set)]
     )
     if rest_coin_count > 0:
-        # print(agent["self_agent"]["score"])
-        # print(rest_coin_count)
-        # print(other_target)
-        # print(eaten_set)
-        # print(other_group_set)
-        # raise Exception("e")
         eaten_set = eaten_set.union(other_group_set)
-        # for _, pl in other_target.items():
-        #     for p in pl:
-        #         eaten_set.add(p)
 
     # record powerups
     passwall = agent["self_agent"]["powerups"].get("passwall", 0)
     shield = agent["self_agent"]["powerups"].get("shield", 0)
     invisibility = agent["self_agent"]["powerups"].get("invisibility", 0)
+    if shield == 0:
+        if agent["self_agent"]["invulnerability_duration"] > 0:
+            shield = agent["self_agent"]["invulnerability_duration"]
 
     cancel_key = []
     for powerup, clock in powerup_clock.items():
@@ -524,9 +518,11 @@ def use_defender(
             nearest_enemy_dist = dist
 
     enemy_nearby_count = 0
+    enemies_in_vision = set()
     for other_agent in other_agent_list:
         if other_agent["role"] != "DEFENDER":
             enemy_nearby_count += 1
+            enemies_in_vision.add((other_agent["x"], other_agent["y"]))
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
@@ -535,6 +531,43 @@ def use_defender(
     for powerup, _ in powerup_clock.items():
         powerup_clock[powerup] += 1
 
+    # one function
+    # print("----")
+    # print("shield", shield)
+    # print("sword", has_sword)
+    # print("passwall", passwall)
+    # print("eaten", len(eaten_set))
+    # print(set(attacker_list))
+    # print(current_pos, attacker_locations)
+    # print(rest_coin_count)
+    target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
+        agent_id,
+        current_pos,
+        eaten_set,
+        passwall,
+        shield,
+        enemies_in_vision,
+        set(attacker_list),
+        openness_map,
+        5,
+    )
+    other_target[agent_id] = target_coin_group
+    if len(path) == 0:
+        path = rust_perf.check_stay_or_not(
+            current_pos, attacker_list, passwall, eaten_set
+        )
+        print("shield", shield)
+        print("sword", has_sword)
+        print("passwall", passwall)
+        print("eaten", len(eaten_set))
+        print(set(attacker_list))
+        print(current_pos, attacker_locations)
+        print(target_coin_group)
+        print(rest_coin_count)
+        # raise Exception("e")
+        # return random.choice(ACTIONS)
+    return get_direction(current_pos, path[0])
+
     # one enemy could not catch me
     if enemy_nearby_count < 2:
         target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
@@ -542,6 +575,7 @@ def use_defender(
             current_pos,
             eaten_set,
             passwall,
+            shield,
             set(attacker_list),
             openness_map,
             7,
@@ -579,15 +613,15 @@ def use_defender(
         #     print("score:", agent["self_agent"]["score"])
         #     print(path)
 
-        # if nearest_enemy_dist == 1:
-        #     print("**********")
-        #     print("id: ", agent_id)
-        #     print(current_pos)
-        #     print(attacker_locations)
-        #     print(has_sword, shield)
-        #     print("dist:", total_dist)
-        #     print("score:", agent["self_agent"]["score"])
-        #     print(path)
+        if nearest_enemy_dist == 1:
+            print("**********")
+            print("id: ", agent_id)
+            print(current_pos)
+            print(attacker_locations)
+            print(has_sword, shield)
+            print("dist:", total_dist)
+            print("score:", agent["self_agent"]["score"])
+            print(path)
         return get_direction(current_pos, path[0])
 
 
@@ -602,8 +636,9 @@ if __name__ == "__main__":
     attacker_score = 0
     defender_score = 0
     seeds = [random.randint(0, 1000000) for _ in range(2)]
-    # seeds = [348074]
+    # seeds = [160483]
     for seed in seeds:
+        print("=========start=======", seed)
         game.reset(attacker="attacker", defender="defender", seed=seed)
 
         eatten_set = set()
@@ -625,6 +660,9 @@ if __name__ == "__main__":
             # get game state for player:
             attacker_state = game.get_agent_states_by_player("attacker")
             defender_state = game.get_agent_states_by_player("defender")
+
+            # for k, v in defender_state.items():
+            #     print("defender", k, v["self_agent"]["score"])
 
             # print(
             #     "a",
@@ -681,9 +719,11 @@ if __name__ == "__main__":
             attacker_locations = dict()
             # least_score_id = 0
             # least_score = 1e8
+            current_score = 0
             for k, v in defender_state.items():
                 my_pos[int(k)] = (v["self_agent"]["x"], v["self_agent"]["y"])
                 other_agent_list = v["other_agents"]
+                current_score += v["self_agent"]["score"]
                 # if v["self_agent"]["score"] < least_score:
                 #     least_score = v["self_agent"]["score"]
                 #     least_score_id = int(k)
@@ -698,6 +738,7 @@ if __name__ == "__main__":
                         #     other_agent["x"],
                         #     other_agent["y"],
                         # )
+            print("current_score: ", current_score)
 
             # all_pos = get_all_nearby_pos(predicted_attacker_pos, map_in_heart)
             # print(all_pos)

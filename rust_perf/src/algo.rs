@@ -33,6 +33,8 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
         cost: 0,
         point: start,
         passwall: 0,
+        shield: 0,
+        depth: 0,
     });
 
     let mut visited = HashSet::new();
@@ -45,6 +47,8 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
         cost: _,
         point,
         passwall: _,
+        shield: _,
+        depth: _,
     }) = to_visit.pop()
     {
         if point == end {
@@ -71,6 +75,8 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
                     cost: f_score,
                     point: next,
                     passwall: 0,
+                    shield: 0,
+                    depth: 0,
                 });
             }
         }
@@ -99,7 +105,9 @@ pub fn astar(start: Point, end: Point, blocked: HashSet<Point>) -> Option<String
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
+                    shield: 0,
                     passwall: 0,
+                    depth: 0,
                 });
             }
         }
@@ -131,6 +139,8 @@ pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(
         cost: 0,
         point: start,
         passwall: 0,
+        shield: 0,
+        depth: 0,
     });
 
     let mut visited = HashSet::new();
@@ -143,6 +153,8 @@ pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(
         cost,
         point,
         passwall: _,
+        shield: _,
+        depth: _,
     }) = to_visit.pop()
     {
         if point == end {
@@ -170,6 +182,8 @@ pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(
                     cost: f_score,
                     point: next,
                     passwall: 0,
+                    shield: 0,
+                    depth: 0,
                 });
             }
         }
@@ -199,6 +213,8 @@ pub fn astar_path(start: Point, end: Point, blocked: HashSet<Point>) -> Option<(
                     cost: f_score,
                     point: next,
                     passwall: 0,
+                    shield: 0,
+                    depth: 0,
                 });
             }
         }
@@ -218,6 +234,8 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
         cost: 0,
         point: start,
         passwall: 0,
+        shield: 0,
+        depth: 0,
     });
 
     let mut visited = HashSet::new();
@@ -230,6 +248,8 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
         cost: _,
         point,
         passwall: _,
+        shield: _,
+        depth: _,
     }) = to_visit.pop()
     {
         if point == end {
@@ -279,6 +299,8 @@ pub fn a_star_search(start: Point, end: Point) -> Option<Vec<Point>> {
                     cost: f_score,
                     point: next,
                     passwall: 0,
+                    shield: 0,
+                    depth: 0,
                 });
             }
         }
@@ -297,12 +319,25 @@ pub fn move_enemy(enemy_position: Point, target_position: Point) -> Point {
     enemy_position.clone()
 }
 
+fn enemy_penalty(point: Point, enemies: &Vec<Point>, penalty_range: i32) -> i32 {
+    let mut penalty = 0;
+    for &enemy in enemies {
+        let dist = crate::distance(point, enemy);
+        if dist <= penalty_range {
+            penalty += penalty_range - dist; // You can adjust this formula as needed
+        }
+    }
+    penalty as i32
+}
+
 pub fn a_star_search_power(
     start: Point,
     end: Point,
     passwall: usize,
+    shield: usize,
     init_banned_points: &HashSet<Point>,
     enemies_all_pos: &HashSet<Point>,
+    enemies_next_all_pos: &HashSet<Point>,
     openness_map: &HashMap<Point, i32>,
 ) -> Option<Vec<Point>> {
     let mut portals = HashMap::new();
@@ -312,11 +347,15 @@ pub fn a_star_search_power(
     let mut banned_points = init_banned_points.clone();
     banned_points.remove(&end);
 
+    let enemies: Vec<Point> = enemies_all_pos.par_iter().map(|x| (x.0, x.1)).collect();
+
     let mut to_visit = BinaryHeap::new();
     to_visit.push(Node {
         cost: 0,
         point: start,
         passwall,
+        shield,
+        depth: 0,
     });
 
     let mut visited = HashSet::new();
@@ -328,7 +367,9 @@ pub fn a_star_search_power(
     while let Some(Node {
         cost: _,
         point,
-        passwall: mut pw,
+        passwall: pw,
+        shield: sh,
+        depth: dep,
     }) = to_visit.pop()
     {
         if point == end {
@@ -351,26 +392,25 @@ pub fn a_star_search_power(
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (Direction::Stay, point));
                 g_scores.insert(next, tentative_g_score);
+                let mut openness = 0;
+                // openness += openness_map.get(&next).unwrap_or(&1) - 1;
                 let mut penalty = 0;
-                penalty += openness_map.get(&next).unwrap_or(&1) - 1;
-                let f_score = tentative_g_score - penalty;
-                if pw == 0 {
-                    pw = 0;
-                } else {
-                    pw -= 1;
-                }
-                if !enemies_all_pos.contains(&next) {
+                // penalty += enemy_penalty(next, &enemies, 3.0);
+                let f_score = tentative_g_score - openness + penalty;
+                if !enemies_all_pos.contains(&next) && !banned_points.contains(&next) {
                     to_visit.push(Node {
                         cost: f_score,
                         point: next,
                         passwall: pw,
+                        shield: sh,
+                        depth: dep,
                     });
                 }
             }
         }
 
         for &(i, j, direction) in &[
-            // (0, 0, Direction::Stay),
+            (0, 0, Direction::Stay),
             (-1, 0, Direction::Left),
             (1, 0, Direction::Right),
             (0, 1, Direction::Down),
@@ -388,26 +428,41 @@ pub fn a_star_search_power(
                     continue;
                 }
             }
-            if enemies_all_pos.contains(&next) {
-                continue;
+            if sh == 0 && dep == 0 {
+                if enemies_all_pos.contains(&next) {
+                    continue;
+                }
+            }
+            if sh == 0 && dep == 1 {
+                if enemies_next_all_pos.contains(&next) {
+                    continue;
+                }
             }
 
-            let tentative_g_score = g_scores.get(&point).unwrap() + 1;
+            let tentative_g_score = *g_scores.get(&point).unwrap();
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
+                let mut openness = 0;
                 let mut penalty = 0;
-                penalty += openness_map.get(&next).unwrap_or(&1) - 1;
-                let f_score = tentative_g_score - penalty;
+                // openness += openness_map.get(&next).unwrap_or(&1) - 1;
+                penalty += enemy_penalty(next, &enemies, 6);
+                let f_score = tentative_g_score - openness + penalty;
                 let mut new_pw = 0;
                 if pw > 0 {
                     new_pw = pw - 1;
+                }
+                let mut new_sh = 0;
+                if sh > 0 {
+                    new_sh = sh - 1;
                 }
 
                 to_visit.push(Node {
                     cost: f_score,
                     point: next,
                     passwall: new_pw,
+                    shield: new_sh,
+                    depth: dep + 1,
                 });
             }
         }

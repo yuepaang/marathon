@@ -673,6 +673,7 @@ class Naga:
         self.avoid_enemy(dir_score)
         self.out_vision(dir_score)
         self.search_enemy(dir_score)
+        self.run_away(dir_score)
         self.remove_invalid(dir_score)
         return self.map_direction[dir_score.index(max(dir_score))]
 
@@ -756,10 +757,13 @@ class Naga:
             ]:
                 idx = self.map_info.path.to_index(ep.next[d])
                 reach_size[idx] = 0
+
         next_loc_set = set()
         for _, agent in self.agent_states.items():
             agent_p = self.map_info.path.to_point(
-                self.map_info.path.to_index_xy(agent["self"]["x"], agent["self"]["y"])
+                self.map_info.path.to_index_xy(
+                    agent["self_agent"]["x"], agent["self_agent"]["y"]
+                )
             )
             for d in [
                 DIRECTION.UP,
@@ -770,14 +774,61 @@ class Naga:
                 next_loc_set.add(self.map_info.path.to_index(agent_p.next[d]))
 
         for idx in range(self.score_num):
-            md = self.map_direction[idx]
             next_loc = []
-            continue_flag = False
             for _, agent in self.other_agents.items():
-                a
-            for sds in single_direction_score:
-                if md[sds[0]] == sds[1].value:
-                    dir_score[idx] += sds[3] / (self.map_info.vision * 5)
+                pos = self.map_info.path.to_index_xy(agent["x"], agent["y"])
+                ep = self.map_info.path.to_point(pos)
+                for d in [
+                    DIRECTION.UP,
+                    DIRECTION.DOWN,
+                    DIRECTION.LEFT,
+                    DIRECTION.RIGHT,
+                ]:
+                    next_loc.append(self.map_info.path.to_index(ep.next[d]))
+            for nl in next_loc:
+                reach_size[nl] = 0
+                p = self.map_info.path.to_point(nl).portal
+                if p:
+                    reach_size[self.map_info.path.to_index(p)] = 0
+            for idx in next_loc_set:
+                remain_loc_num = self.get_intersection_size(next_loc, idx)
+                reach_size[idx] = min(reach_size[idx], remain_loc_num)
+
+        def get_score(remain_loc_num):
+            if remain_loc_num < 5:
+                return -10000 * (5 - remain_loc_num)
+            elif remain_loc_num < 20:
+                return remain_loc_num - 5
+            elif remain_loc_num < 40:
+                return 15 + (remain_loc_num - 15) * 0.001
+            else:
+                return 15 + 25 * 0.001
+
+        for idx in range(self.score_num):
+            md = self.map_direction[idx]
+            for agent_id, agent in self.agent_states.items():
+                p = self.map_info.path.to_point(
+                    self.map_info.path.to_index_xy(
+                        agent["self_agent"]["x"], agent["self_agent"]["y"]
+                    )
+                )
+                next_point = p.next[DIRECTION(md[agent_id])]
+                next_idx = self.map_info.path.to_index(next_point)
+                dir_score[idx] += get_score(reach_size[next_idx])
+
+    def get_intersection_size(self, attack_idx_vec, defence_idx):
+        remain_loc_num = 0
+        for temp_loc in range(self.map_info.path.node_num):
+            enemy_dist = self.map_info.path.get_cost_index(defence_idx, temp_loc)
+            in_reach = False
+            for nl in attack_idx_vec:
+                tmp_dist = self.map_info.path.get_cost_index(nl, temp_loc)
+                if temp_loc <= enemy_dist:
+                    in_reach = True
+                    break
+            if not in_reach:
+                remain_loc_num += 1
+        return remain_loc_num
 
     def search_enemy(self, dir_score):
         map_danger: Dict[int, float] = {}

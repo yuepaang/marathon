@@ -393,7 +393,7 @@ pub fn a_star_search_power(
                 came_from.insert(next, (Direction::Stay, point));
                 g_scores.insert(next, tentative_g_score);
                 let mut openness = 0;
-                // openness += openness_map.get(&next).unwrap_or(&1) - 1;
+                openness += openness_map.get(&next).unwrap_or(&1) - 1;
                 let mut penalty = 0;
                 // penalty += enemy_penalty(next, &enemies, 3.0);
                 let f_score = tentative_g_score - openness + penalty;
@@ -439,14 +439,14 @@ pub fn a_star_search_power(
                 }
             }
 
-            let tentative_g_score = *g_scores.get(&point).unwrap();
+            let tentative_g_score = *g_scores.get(&point).unwrap() + 1;
             if tentative_g_score < *g_scores.get(&next).unwrap_or(&i32::MAX) {
                 came_from.insert(next, (direction, point));
                 g_scores.insert(next, tentative_g_score);
                 let mut openness = 0;
                 let mut penalty = 0;
-                // openness += openness_map.get(&next).unwrap_or(&1) - 1;
-                penalty += enemy_penalty(next, &enemies, 6);
+                openness += openness_map.get(&next).unwrap_or(&1) - 1;
+                // penalty += enemy_penalty(next, &enemies, 6);
                 let f_score = tentative_g_score - openness + penalty;
                 let mut new_pw = 0;
                 if pw > 0 {

@@ -363,6 +363,10 @@ def use_attacker(agent, enemies, powerup_clock, main_chase, defender_next_move) 
 
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
 
+    if agent["self_agent"]["id"] == 0:
+        if current_pos in global_coin_set:
+            return "STAY"
+
     # explore phrase
     if len(enemies) == 0:
         explore_path = explore_paths[agent["self_agent"]["id"]]
@@ -636,7 +640,7 @@ if __name__ == "__main__":
     attacker_score = 0
     defender_score = 0
     seeds = [random.randint(0, 1000000) for _ in range(2)]
-    # seeds = [160483]
+    # seeds = [605307]
     for seed in seeds:
         print("=========start=======", seed)
         game.reset(attacker="attacker", defender="defender", seed=seed)
@@ -655,6 +659,7 @@ if __name__ == "__main__":
         islands = hull(maze)
         print(len(islands))
 
+        prev_score = -1
         # game loop
         while not game.is_over():
             # get game state for player:
@@ -738,7 +743,9 @@ if __name__ == "__main__":
                         #     other_agent["x"],
                         #     other_agent["y"],
                         # )
-            print("current_score: ", current_score)
+            if current_score > prev_score:
+                prev_score = current_score
+                print("current_score: ", current_score)
 
             # all_pos = get_all_nearby_pos(predicted_attacker_pos, map_in_heart)
             # print(all_pos)

@@ -24,6 +24,7 @@ from typing import Dict, List, Union
 
 import numpy as np
 from scipy.spatial import ConvexHull
+from baseline import predict_enemy_move, use_attacker
 from game import Game, Powerup
 import random
 from numba import jit
@@ -670,9 +671,9 @@ class Naga:
 
         # print([s for s in dir_score if s == max(dir_score)])
         # raise Exception("e")
-        self.avoid_enemy(dir_score)
-        self.out_vision(dir_score)
-        self.search_enemy(dir_score)
+        # self.avoid_enemy(dir_score)
+        # self.out_vision(dir_score)
+        # self.search_enemy(dir_score)
         self.run_away(dir_score)
         self.remove_invalid(dir_score)
         return self.map_direction[dir_score.index(max(dir_score))]
@@ -1124,6 +1125,7 @@ for seed in seeds:
     # print(map_info.path.get_cost(map_info.maps[0][23], map_info.maps[23][0]))
     print("map_info done")
 
+    attacker_powerup_clock = {}
     # game loop
     while not game.is_over():
         # get game state for player:
@@ -1140,9 +1142,33 @@ for seed in seeds:
         #     print(naga.power_scores)
         #     raise Exception("b")
 
+        defender_locations = set()
+        my_pos = []
+        main_chase = {}
+        for k, v in attacker_state.items():
+            my_pos.append((v["self_agent"]["x"], v["self_agent"]["y"]))
+            other_agent_list = v["other_agents"]
+            for other_agent in other_agent_list:
+                if other_agent["role"] == "DEFENDER":
+                    defender_locations.add((other_agent["x"], other_agent["y"]))
+                    main_chase[int(k)] = (other_agent["x"], other_agent["y"])
+
+        defender_next_move = {}
+        for enemy in defender_locations:
+            defender_next_move[enemy] = predict_enemy_move(enemy, my_pos)
         attacker_actions = {
-            _id: random.choice(naga.action) for _id in attacker_state.keys()
+            _id: use_attacker(
+                attacker_state[_id],
+                list(defender_locations),
+                attacker_powerup_clock,
+                main_chase,
+                defender_next_move,
+            )
+            for _id in attacker_state.keys()
         }
+        # attacker_actions = {
+        #     _id: random.choice(naga.action) for _id in attacker_state.keys()
+        # }
         # attacker_actions = {_id: "STAY" for _id in attacker_state.keys()}
 
         attacker_locs = set()

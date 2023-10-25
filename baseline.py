@@ -640,7 +640,7 @@ if __name__ == "__main__":
     attacker_score = 0
     defender_score = 0
     seeds = [random.randint(0, 1000000) for _ in range(2)]
-    # seeds = [605307]
+    seeds = [947854]
     for seed in seeds:
         print("=========start=======", seed)
         game.reset(attacker="attacker", defender="defender", seed=seed)
@@ -743,7 +743,7 @@ if __name__ == "__main__":
                         #     other_agent["x"],
                         #     other_agent["y"],
                         # )
-            if current_score > prev_score:
+            if current_score != prev_score:
                 prev_score = current_score
                 print("current_score: ", current_score)
 

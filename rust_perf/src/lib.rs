@@ -35,6 +35,7 @@ pub struct Node {
     point: Point,
     passwall: usize,
     shield: usize,
+    invisibility: usize,
     depth: usize,
 }
 
@@ -189,8 +190,6 @@ fn check_stay_or_not(
         .collect();
 
     if enemies_position.len() == 2 {
-        let centroid = compute_centroid(&enemies_position);
-        let move_to = get_diagonal_move(start, centroid);
         let escape_to = get_escape_move(start, &enemies_position);
 
         if !banned_points.contains(&escape_to)
@@ -199,6 +198,11 @@ fn check_stay_or_not(
         {
             return Ok(vec![escape_to]);
         }
+    }
+
+    if enemies_position.len() == 1 {
+        let centroid = compute_centroid(&enemies_position);
+        let move_to = get_diagonal_move(start, centroid);
 
         if !banned_points.contains(&move_to)
             && !enemies_all_pos.contains(&move_to)
@@ -378,6 +382,7 @@ fn catch_enemies_using_powerup(
             enemies[0],
             pass_wall,
             0,
+            0,
             &banned_points,
             &HashSet::new(),
             &HashSet::new(),
@@ -401,6 +406,7 @@ fn catch_enemies_using_powerup(
                 enemies[0].1 + move_direction.1 * 3,
             ),
             pass_wall,
+            0,
             0,
             &banned_points,
             &HashSet::new(),
@@ -465,6 +471,7 @@ fn collect_coins_using_powerup(
     mut eaten_coins: HashSet<Point>,
     mut passwall: usize,
     mut shield: usize,
+    mut invisibility: usize,
     enemies_in_vision: HashSet<Point>,
     enemies_position: HashSet<Point>,
     openess_map: HashMap<Point, i32>,
@@ -529,7 +536,7 @@ fn collect_coins_using_powerup(
             .map(|x| (x.0, x.1))
             .collect();
 
-        if enemies_in_vision.len() >= 2 {
+        if enemies_in_vision.len() >= 3 && shield <= 0 {
             run_away = true;
             positive_targets = conf::PORTALS.par_iter().map(|x| (x.0, x.1)).collect();
         }
@@ -550,6 +557,7 @@ fn collect_coins_using_powerup(
                     target,
                     passwall,
                     shield,
+                    invisibility,
                     &banned_points,
                     &enemies_all_pos,
                     &enemies_next_all_pos,
@@ -568,6 +576,7 @@ fn collect_coins_using_powerup(
                         target,
                         passwall,
                         shield,
+                        invisibility,
                         &banned_points,
                         &enemies_all_pos,
                         &HashSet::new(),
@@ -600,6 +609,7 @@ fn collect_coins_using_powerup(
         agent_coins_score += 2;
         passwall -= sp.len();
         shield -= sp.len();
+        invisibility -= sp.len();
     }
 
     if total_path.len() == 0 {

@@ -463,13 +463,11 @@ def use_defender(
     powerup_clock,
     other_target,
     attacker_locations,
+    coin_cache,
 ) -> str:
     # safe phrase
     agent_id = agent["self_agent"]["id"]
     current_pos = (agent["self_agent"]["x"], agent["self_agent"]["y"])
-
-    # if agent_id == 4:
-    #     print("curr", current_pos)
 
     for p in agent["powerups"]:
         if p["powerup"] == str(Powerup.SWORD):
@@ -479,6 +477,7 @@ def use_defender(
 
     # record locations have been arrived
     if current_pos in global_coin_set:
+        coin_cache.add(current_pos)
         input_eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
         input_eaten_set.add(current_pos)
@@ -494,12 +493,14 @@ def use_defender(
         eaten_set = eaten_set.union(other_group_set)
 
     # record powerups
+    bkb = False
     passwall = agent["self_agent"]["powerups"].get("passwall", 0)
     shield = agent["self_agent"]["powerups"].get("shield", 0)
     invisibility = agent["self_agent"]["powerups"].get("invisibility", 0)
     if shield == 0:
         if agent["self_agent"]["invulnerability_duration"] > 0:
             shield = agent["self_agent"]["invulnerability_duration"]
+            bkb = True
 
     cancel_key = []
     for powerup, clock in powerup_clock.items():
@@ -530,10 +531,22 @@ def use_defender(
             if "sword" in other_agent["powerups"]:
                 has_sword = True
 
+    if has_sword:
+        shield = 0
+
     attacker_list = [v for v in attacker_locations.values()]
 
     for powerup, _ in powerup_clock.items():
         powerup_clock[powerup] += 1
+
+    if len(coin_cache) == 87 and not bkb:
+        if len(enemies_in_vision) == 0:
+            return "STAY"
+        else:
+            path = rust_perf.check_stay_or_not(
+                current_pos, list(enemies_in_vision), passwall, eaten_set
+            )
+            return get_direction(current_pos, path[0])
 
     # one function
     # print("----")
@@ -550,6 +563,7 @@ def use_defender(
         eaten_set,
         passwall,
         shield,
+        invisibility,
         enemies_in_vision,
         set(attacker_list),
         openness_map,
@@ -563,13 +577,15 @@ def use_defender(
         print("shield", shield)
         print("sword", has_sword)
         print("passwall", passwall)
+        print("invisibility", invisibility)
         print("eaten", len(eaten_set))
         print(set(attacker_list))
         print(current_pos, attacker_locations)
         print(target_coin_group)
         print(rest_coin_count)
         # raise Exception("e")
-        # return random.choice(ACTIONS)
+        if len(path) == 0:
+            return random.choice(ACTIONS)
     return get_direction(current_pos, path[0])
 
     # one enemy could not catch me
@@ -640,12 +656,13 @@ if __name__ == "__main__":
     attacker_score = 0
     defender_score = 0
     seeds = [random.randint(0, 1000000) for _ in range(2)]
-    seeds = [947854]
+    # seeds = [872914]
     for seed in seeds:
         print("=========start=======", seed)
         game.reset(attacker="attacker", defender="defender", seed=seed)
 
         eatten_set = set()
+        coin_cache = set()
         step = 0
         defender_powerup_clock = {}
         attacker_powerup_clock = {}
@@ -771,6 +788,7 @@ if __name__ == "__main__":
                     defender_powerup_clock,
                     other_target,
                     attacker_locations,
+                    coin_cache,
                     # predicted_attacker_pos,
                 )
                 for _id in defender_state.keys()

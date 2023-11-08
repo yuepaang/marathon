@@ -540,11 +540,9 @@ def use_defender(
         powerup_clock[powerup] += 1
 
     if len(coin_cache) == 87 and not bkb:
-        if len(enemies_in_vision) == 0:
-            return "STAY"
-        else:
+        if len(enemies_in_vision) >= 1:
             path = rust_perf.check_stay_or_not(
-                current_pos, list(enemies_in_vision), passwall, eaten_set
+                current_pos, attacker_list, passwall, eaten_set
             )
             return get_direction(current_pos, path[0])
 
@@ -567,7 +565,7 @@ def use_defender(
         enemies_in_vision,
         set(attacker_list),
         openness_map,
-        5,
+        6,
     )
     other_target[agent_id] = target_coin_group
     if len(path) == 0:

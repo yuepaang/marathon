@@ -150,6 +150,10 @@ def attack(
     )
     agent_id = agent.get_self_agent().id
 
+    if agent_id == 0:
+        if current_pos in global_coin_set:
+            return "STAY"
+
     if len(enemies) == 0:
         explore_path = explore_paths[agent_id]
         next_point = explore_path.pop(0)
@@ -206,6 +210,7 @@ def defend(
     powerup_clock,
     other_target,
     attacker_locations,
+    coin_cache,
 ) -> str:
     agent_id = agent.get_self_agent().id
     current_pos = (
@@ -222,6 +227,7 @@ def defend(
 
     # record locations have been arrived
     if current_pos in global_coin_set:
+        coin_cache.add(current_pos)
         input_eaten_set.add(current_pos)
     if current_pos in global_powerup_set:
         input_eaten_set.add(current_pos)
@@ -238,9 +244,14 @@ def defend(
         eaten_set = eaten_set.union(other_group_set)
 
     # owned powerup
+    bkb = False
     passwall = agent.get_self_agent().powerups.get("passwall", 0)
     shield = agent.get_self_agent().powerups.get("shield", 0)
     invisibility = agent.get_self_agent().powerups.get("invisibility", 0)
+    if shield == 0:
+        if agent.get_self_agent().invulnerability_duration > 0:
+            shield = agent.get_self_agent().invulnerability_duration
+            bkb = True
 
     cancel_key = []
     for powerup, clock in powerup_clock.items():
@@ -263,46 +274,49 @@ def defend(
     # attacker_location = set()
     has_sword = False
     enemy_nearby_count = 0
+    enemies_in_vision = set()
     for other_agent in other_agent_list:
         if other_agent.get_role() != "DEFENDER":
             enemy_nearby_count += 1
             # attacker_location.add((other_agent.x, other_agent.y))
+            enemies_in_vision.add((other_agent.x, other_agent.y))
             if "sword" in other_agent["powerups"]:
                 has_sword = True
+
+    if has_sword:
+        shield = 0
 
     attacker_list = [v for v in attacker_locations.values()]
     for powerup, _ in powerup_clock.items():
         powerup_clock[powerup] += 1
 
-    if enemy_nearby_count < 2:
-        target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
-            agent_id,
-            current_pos,
-            eaten_set,
-            passwall,
-            set(attacker_list),
-            openness_map,
-            7,
-        )
-        other_target[agent_id] = target_coin_group
-        if path:
+    if len(coin_cache) == 87 and not bkb:
+        if len(enemies_in_vision) >= 1:
+            path = rust_perf.check_stay_or_not(
+                current_pos, attacker_list, passwall, eaten_set
+            )
             return get_direction(current_pos, path[0])
-        else:
-            if nearest_enemy_dist <= 2:
-                path = rust_perf.check_stay_or_not(
-                    current_pos, attacker_list, passwall, eaten_set
-                )
-                return get_direction(current_pos, path[0])
-            return random.choice(ACTIONS)
 
-    else:
+    target_coin_group, path, _ = rust_perf.collect_coins_using_powerup(
+        agent_id,
+        current_pos,
+        eaten_set,
+        passwall,
+        shield,
+        invisibility,
+        enemies_in_vision,
+        set(attacker_list),
+        openness_map,
+        5,
+    )
+    other_target[agent_id] = target_coin_group
+    if len(path) == 0:
         path = rust_perf.check_stay_or_not(
             current_pos, attacker_list, passwall, eaten_set
         )
-        if path:
-            return get_direction(current_pos, path[0])
-        else:
+        if len(path) == 0:
             return random.choice(ACTIONS)
+    return get_direction(current_pos, path[0])
 
 
 class RealGame(marathon.Game):
@@ -310,6 +324,7 @@ class RealGame(marathon.Game):
         super().__init__(match_id=match_id)
         self.step = 0
         self.eaten_set = set()
+        self.coin_cache = set()
         self.powerup_clock = {}
         self.defender_scatter = {4: (0, 12), 5: (18, 17), 6: (11, 11), 7: (20, 9)}
         self.map_in_heart = [[0.0 for _ in range(24)] for _ in range(24)]
@@ -330,6 +345,7 @@ class RealGame(marathon.Game):
     def on_game_start(self, data):
         self.step = 0
         self.eaten_set = set()
+        self.coin_cache = set()
         self.powerup_clock = {}
 
     def on_game_state(self, data: marathon.MessageGameState):
@@ -395,6 +411,7 @@ class RealGame(marathon.Game):
                     other_target,
                     # self.predicted_attacker_pos,
                     attacker_locations,
+                    self.coin_cache,
                 )
             else:
                 action[agent_id] = attack(
